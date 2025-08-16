@@ -1,33 +1,52 @@
+/**
+ * Código Raimundão
+ * 
+ * Código completo do funcionamento do Raimundão - Inspirado em outros códigos
+ * do Omegabotz, mas com uso de FreeRTOS para usar melhor os núcleos do ESP32.
+ * Um dos núcleos deverá cuidar da detecção (tanto de inimigos quanto de linha)
+ * e enviar mensagens adequadas para o outro núcleo.
+ * 
+ * @author Felipe Mastromauro Corrêa
+ */
+
+#include <esp_ipc.h>
 #include <Arduino.h>
 #include <IRremote.hpp>
 #include <Itamotorino.h>
-#include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
-#include <esp_ipc.h>
+#include <freertos/FreeRTOS.h>
 
-#define DECODE_SONY
+#define DECODE_SONY // Limita biblioteca de IR ao protocolo Sony.
 
-constexpr uint_least8_t IR_SIGNAL = 4;
-constexpr uint_least8_t ONBOARD_LED = 2;
-constexpr bool DEBUG = true; // set to true for serial messaging
-
-uint_fast32_t startTime = millis();
-uint_fast32_t nowTime;
-bool flashing = true;
-
-enum State {
-  READY = 0x0, // same as controller command for number 1.
+enum RobotState {
+  READY = 0x0, // Comando HEX recebido pelo número 1.
   RUNNING,
   STOP
 };
 
 enum Strategy {
-  RADAR = 0x3,
-  CURVA_ABERTA
+  RADAR_ESQUERDA = 0x3, // Comando HEX recebido pelo número 4.
+  RADAR_DIREITA,
+  CURVA_ABERTA,
+  FOLLOW_ONLY,
+  WOODPECKER
 };
 
-State state = READY;
-Strategy strategy = RADAR;
+// Usando tipos *_least*_t para economizar memória.
+
+constexpr uint_least8_t IR_SIGNAL = 4;
+constexpr uint_least8_t ONBOARD_LED = 2;
+
+constexpr bool DEBUG = true; // Se true, habilita Serial e mensagens.
+
+// Globais
+
+uint_least32_t startTime = millis();
+uint_least32_t nowTime;
+
+RobotState robotState = READY;
+Strategy strategy = RADAR_ESQUERDA;
+bool flashing = true;
 
 void receiveSignal(void *arg);
 void blinkLed(void *arg);
@@ -44,12 +63,12 @@ void setup() {
 
 void loop() {
   esp_ipc_call(PRO_CPU_NUM, receiveSignal, NULL);
-  if (state == RUNNING){
+  if (robotState == RUNNING){
     esp_ipc_call(APP_CPU_NUM, blinkLed, NULL);
   }
-  if (state == STOP){
+  if (robotState == STOP){
     if (DEBUG)
-      Serial.println("Stopped reception and every other task. Locked functionality.");
+      Serial.println("Recepcao e outras tarefas paradas.");
     while (true){
       digitalWrite(ONBOARD_LED, LOW);
       delay(500);
@@ -59,45 +78,61 @@ void loop() {
   }
 }
 
+/**
+ * Recebe e interpreta o sinal do controle para o funcionamento do robô, definindo
+ * os estados e estratégias.
+ */
 void receiveSignal(void *arg){
   (void)arg;
   if (IrReceiver.decode()){
     IrReceiver.resume();
-    if (state != STOP && state != RUNNING && IrReceiver.decodedIRData.command == READY)
-      state = READY;
+    if (robotState != STOP && robotState != RUNNING && IrReceiver.decodedIRData.command == READY)
+      robotState = READY;
 
-    if (state == READY){
+    if (robotState == READY){
       switch(IrReceiver.decodedIRData.command){
         case RUNNING:
-          state = RUNNING;
+          robotState = RUNNING;
           break;
-        case RADAR:
-          strategy = RADAR;
+        case RADAR_ESQUERDA:
+          strategy = RADAR_ESQUERDA;
+          break;
+        case RADAR_DIREITA:
+          strategy = RADAR_DIREITA;
           break;
         case CURVA_ABERTA:
           strategy = CURVA_ABERTA;
           break;
+        case FOLLOW_ONLY:
+          strategy = FOLLOW_ONLY;
+          break;
+        case WOODPECKER:
+          strategy = WOODPECKER;
         default:
           break;
       }
     }
     if (IrReceiver.decodedIRData.command == STOP)
-      state = STOP;
+      robotState = STOP;
 
     if (DEBUG){
-      Serial.print("Command from Sony SIRC protocol: 0x");
+      Serial.print("Comando Sony SIRC protocol: 0x");
       Serial.println(IrReceiver.decodedIRData.command);
-      Serial.print("State based on command: 0x");
-      Serial.println(state);
-      Serial.print("Current strategy: 0x");
+      Serial.print("RobotState apos comando: 0x");
+      Serial.println(robotState);
+      Serial.print("Estrategia apos comando: 0x");
       Serial.println(strategy);
-      Serial.print("Core ID for this function: ");
+      Serial.print("Core ID de receiveSignal(): ");
       Serial.println(xPortGetCoreID());
     }
   }
   IrReceiver.resume(); // might be unnecessary
 }
 
+/**
+ * Funcão simples para piscar o LED onboard do ESP com um delay não 
+ * blocante de 2 segundos.
+ */
 void blinkLed(void *arg){
   (void)arg;
   nowTime = millis();
@@ -109,7 +144,7 @@ void blinkLed(void *arg){
       digitalWrite(ONBOARD_LED, HIGH);
     flashing = !flashing;
     if (DEBUG){
-      Serial.print("Core ID for blinking function: ");
+      Serial.print("Core ID de blinkLed(): ");
       Serial.println(xPortGetCoreID());
     }
   }
