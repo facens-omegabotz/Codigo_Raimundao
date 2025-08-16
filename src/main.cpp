@@ -32,7 +32,14 @@ enum Strategy {
   WOODPECKER
 };
 
-// Usando tipos *_least*_t para economizar memória.
+/**
+ * Usando tipos *_fast*_t para otimizar velocidade.
+ * *_fast*_t entrega o tipo mais rápido disponível com pelo menos a
+ * quantidade de bits necessária.
+ * 
+ * @cite C23 Internation Standard ISO/IEC 9899:2024, seção 7.22.1.3
+ * @related https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3220.pdf
+ */ 
 
 constexpr uint_least8_t IR_SIGNAL = 4;
 constexpr uint_least8_t ONBOARD_LED = 2;
@@ -41,8 +48,8 @@ constexpr bool DEBUG = true; // Se true, habilita Serial e mensagens.
 
 // Globais
 
-uint_least32_t startTime = millis();
-uint_least32_t nowTime;
+uint_fast32_t startTime = millis();
+uint_fast32_t nowTime;
 
 RobotState robotState = READY;
 Strategy strategy = RADAR_ESQUERDA;
