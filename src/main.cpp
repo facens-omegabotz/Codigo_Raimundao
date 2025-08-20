@@ -9,8 +9,11 @@
  * @author Felipe Mastromauro Corrêa
  */
 
+// TODO: Biblioteca separada com as estratégias (provavelmente o código ficaria mais limpo).
+
 #include <esp_ipc.h>
 #include <Arduino.h>
+#include <QTRSensors.h>
 #include <IRremote.hpp>
 #include <Itamotorino.h>
 #include <freertos/task.h>
@@ -32,17 +35,13 @@ enum Strategy {
   WOODPECKER
 };
 
-/**
- * Usando tipos *_fast*_t para otimizar velocidade.
- * *_fast*_t entrega o tipo mais rápido disponível com pelo menos a
- * quantidade de bits necessária.
- * 
- * @cite C23 Internation Standard ISO/IEC 9899:2024, seção 7.22.1.3
- * @related https://www.open-std.org/jtc1/sc22/wg14/www/docs/n3220.pdf
- */ 
-
-constexpr uint_least8_t IR_SIGNAL = 4;
-constexpr uint_least8_t ONBOARD_LED = 2;
+constexpr uint8_t SENSOR_1 = 35;
+constexpr uint8_t SENSOR_2 = 33;
+constexpr uint8_t SENSOR_3 = 25;
+constexpr uint8_t SENSOR_4 = 27;
+constexpr uint8_t IR_SIGNAL = 4;
+constexpr uint8_t QTR_1 = 36;
+constexpr uint8_t QTR_2 = 39;
 
 constexpr bool DEBUG = true; // Se true, habilita Serial e mensagens.
 
@@ -55,17 +54,26 @@ RobotState robotState = READY;
 Strategy strategy = RADAR_ESQUERDA;
 bool flashing = true;
 
+QTRSensors qtr;
+constexpr uint8_t sensorCount = 2;
+uint16_t sensorValues[sensorCount];
+
+// Declaração de funções
+
 void receiveSignal(void *arg);
 void blinkLed(void *arg);
 
 void setup() {
   IrReceiver.begin(IR_SIGNAL, false);
-  pinMode(ONBOARD_LED, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
   if (DEBUG){
     Serial.begin(115200);
     while (!Serial){;}
   }
-  digitalWrite(ONBOARD_LED, HIGH);
+  qtr.setTypeAnalog();
+  qtr.setSensorPins((const uint8_t[]){QTR_1, QTR_2}, sensorCount);
+  qtr.calibrate();
+  digitalWrite(LED_BUILTIN, HIGH);
 }
 
 void loop() {
@@ -77,9 +85,9 @@ void loop() {
     if (DEBUG)
       Serial.println("Recepcao e outras tarefas paradas.");
     while (true){
-      digitalWrite(ONBOARD_LED, LOW);
+      digitalWrite(LED_BUILTIN, LOW);
       delay(500);
-      digitalWrite(ONBOARD_LED, HIGH);
+      digitalWrite(LED_BUILTIN, HIGH);
       delay(500);
     }
   }
@@ -146,9 +154,9 @@ void blinkLed(void *arg){
   if (nowTime - startTime >= 2000L){
     startTime = millis();
     if (flashing)
-      digitalWrite(ONBOARD_LED, LOW);
+      digitalWrite(LED_BUILTIN, LOW);
     else
-      digitalWrite(ONBOARD_LED, HIGH);
+      digitalWrite(LED_BUILTIN, HIGH);
     flashing = !flashing;
     if (DEBUG){
       Serial.print("Core ID de blinkLed(): ");
