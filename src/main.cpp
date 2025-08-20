@@ -62,6 +62,7 @@ uint16_t sensorValues[sensorCount];
 
 void receiveSignal(void *arg);
 void blinkLed(void *arg);
+void radar(void *arg, bool start_turning_right);
 
 void setup() {
   IrReceiver.begin(IR_SIGNAL, false);
@@ -162,5 +163,26 @@ void blinkLed(void *arg){
       Serial.print("Core ID de blinkLed(): ");
       Serial.println(xPortGetCoreID());
     }
+  }
+}
+
+// Parece simples. Só acelera se for centralizado.
+void radar(void *arg, bool start_turning_right){
+  (void)arg;
+  nowTime = millis();
+  while(!digitalRead(SENSOR_1) and !digitalRead(SENSOR_2) and !digitalRead(SENSOR_3) and !digitalRead(SENSOR_4)){
+    if (start_turning_right){
+      // Vira à direita
+    }
+    else{
+      // Vira à esquerda
+    }
+  }
+  if (nowTime - startTime > 1000L){
+    start_turning_right = !start_turning_right;
+    startTime = millis();
+  }
+  while(digitalRead(SENSOR_2) or digitalRead(SENSOR_3)){
+    // Acelera
   }
 }
