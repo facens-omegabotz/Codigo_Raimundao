@@ -10,7 +10,9 @@
  */
 
 // TODO: Biblioteca separada com as estratégias (provavelmente o código ficaria mais limpo).
+// TODO: Separar aceleração de sensoriamento
 
+#include <EEPROM.h>
 #include <esp_ipc.h>
 #include <Arduino.h>
 #include <QTRSensors.h>
@@ -44,6 +46,7 @@ constexpr uint8_t QTR_1 = 36;
 constexpr uint8_t QTR_2 = 39;
 
 constexpr bool DEBUG = true; // Se true, habilita Serial e mensagens.
+constexpr uint16_t EEPROM_SIZE = 500;
 
 // Globais
 
@@ -53,10 +56,6 @@ uint_fast32_t nowTime;
 RobotState robotState = READY;
 Strategy strategy = RADAR_ESQUERDA;
 bool flashing = true;
-
-QTRSensors qtr;
-constexpr uint8_t sensorCount = 2;
-uint16_t sensorValues[sensorCount];
 
 // Declaração de funções
 
@@ -71,9 +70,6 @@ void setup() {
     Serial.begin(115200);
     while (!Serial){;}
   }
-  qtr.setTypeAnalog();
-  qtr.setSensorPins((const uint8_t[]){QTR_1, QTR_2}, sensorCount);
-  qtr.calibrate();
   digitalWrite(LED_BUILTIN, HIGH);
 }
 
