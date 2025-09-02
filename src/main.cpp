@@ -9,10 +9,10 @@
  * @author Felipe Mastromauro Corrêa
  */
 
-// TODO: Biblioteca separada com as estratégias (provavelmente o código ficaria mais limpo).
-// TODO: Separar aceleração de sensoriamento
 
 #include <EEPROM.h>
+#include "headers/enumerators.h"
+#include "headers/mem_functions.h"
 #include <esp_ipc.h>
 #include <Arduino.h>
 #include <QTRSensors.h>
@@ -22,64 +22,62 @@
 #include <freertos/FreeRTOS.h>
 
 #define DECODE_SONY // Limita biblioteca de IR ao protocolo Sony.
+#define NUM_SENSORS 2
+#define NUM_SAMPLES_PER_SENSOR 4
 
-enum RobotState {
-  READY = 0x0, // Comando HEX recebido pelo número 1.
-  RUNNING,
-  STOP
-};
 
-enum Strategy {
-  RADAR_ESQUERDA = 0x3, // Comando HEX recebido pelo número 4.
-  RADAR_DIREITA,
-  CURVA_ABERTA,
-  FOLLOW_ONLY,
-  WOODPECKER
-};
+constexpr uint8_t kSensor1 = 35;
+constexpr uint8_t kSensor2 = 33;
+constexpr uint8_t kSensor3 = 25;
+constexpr uint8_t kSensor4 = 27;
+constexpr uint8_t kIrPin = 4;
+constexpr uint8_t kQtr1 = 36;
+constexpr uint8_t kQtr2 = 39;
 
-constexpr uint8_t SENSOR_1 = 35;
-constexpr uint8_t SENSOR_2 = 33;
-constexpr uint8_t SENSOR_3 = 25;
-constexpr uint8_t SENSOR_4 = 27;
-constexpr uint8_t IR_SIGNAL = 4;
-constexpr uint8_t QTR_1 = 36;
-constexpr uint8_t QTR_2 = 39;
-
-constexpr bool DEBUG = true; // Se true, habilita Serial e mensagens.
-constexpr uint16_t EEPROM_SIZE = 500;
+constexpr bool kDebug = true; // Se true, habilita Serial e mensagens.
 
 // Globais
 
-uint_fast32_t startTime = millis();
-uint_fast32_t nowTime;
+uint_fast32_t start_time = millis();
+uint_fast32_t now_time;
 
-RobotState robotState = READY;
-Strategy strategy = RADAR_ESQUERDA;
+RobotState state = kReady;
+Strategy strat = kRadarEsq;
 bool flashing = true;
+bool use_eeprom_calibration = true;
+bool is_calibrated = false;
+
+uint32_t sensorValues[NUM_SENSORS];
 
 // Declaração de funções
 
-void receiveSignal(void *arg);
+void calibrate();
+void readEEPROMCalibration();
+void writeEEPROMCalibration();
+void receive_signal(void *arg);
 void blinkLed(void *arg);
-void radar(void *arg, bool start_turning_right);
+void radar(bool turnRight);
+void sensingTask();
+void motorControlTask();
 
 void setup() {
-  IrReceiver.begin(IR_SIGNAL, false);
+  IrReceiver.begin(kIrPin, false);
   pinMode(LED_BUILTIN, OUTPUT);
-  if (DEBUG){
+  if (kDebug){
     Serial.begin(115200);
     while (!Serial){;}
   }
   digitalWrite(LED_BUILTIN, HIGH);
 }
 
+// TODO: separar em duas tasks maiores: Sensoriamento e Motores.
 void loop() {
-  esp_ipc_call(PRO_CPU_NUM, receiveSignal, NULL);
-  if (robotState == RUNNING){
+  esp_ipc_call(PRO_CPU_NUM, receive_signal, NULL);
+  if (state == kRunning){
     esp_ipc_call(APP_CPU_NUM, blinkLed, NULL);
   }
-  if (robotState == STOP){
-    if (DEBUG)
+  if (state == kStop){
+    if (kDebug)
       Serial.println("Recepcao e outras tarefas paradas.");
     while (true){
       digitalWrite(LED_BUILTIN, LOW);
@@ -94,47 +92,47 @@ void loop() {
  * Recebe e interpreta o sinal do controle para o funcionamento do robô, definindo
  * os estados e estratégias.
  */
-void receiveSignal(void *arg){
+void receive_signal(void *arg){
   (void)arg;
   if (IrReceiver.decode()){
     IrReceiver.resume();
-    if (robotState != STOP && robotState != RUNNING && IrReceiver.decodedIRData.command == READY)
-      robotState = READY;
+    if (state != kStop && state != kRunning && IrReceiver.decodedIRData.command == kReady)
+      state = kReady;
 
-    if (robotState == READY){
+    if (state == kReady){
       switch(IrReceiver.decodedIRData.command){
-        case RUNNING:
-          robotState = RUNNING;
+        case kRunning:
+          state = kRunning;
           break;
-        case RADAR_ESQUERDA:
-          strategy = RADAR_ESQUERDA;
+        case kRadarEsq:
+          strat = kRadarEsq;
           break;
-        case RADAR_DIREITA:
-          strategy = RADAR_DIREITA;
+        case kRadarDir:
+          strat = kRadarDir;
           break;
-        case CURVA_ABERTA:
-          strategy = CURVA_ABERTA;
+        case kCurvaAberta:
+          strat = kCurvaAberta;
           break;
-        case FOLLOW_ONLY:
-          strategy = FOLLOW_ONLY;
+        case kFollowOnly:
+          strat = kFollowOnly;
           break;
-        case WOODPECKER:
-          strategy = WOODPECKER;
+        case  kWoodPecker:
+          strat = kWoodPecker;
         default:
           break;
       }
     }
-    if (IrReceiver.decodedIRData.command == STOP)
-      robotState = STOP;
+    if (IrReceiver.decodedIRData.command == kStop)
+      state = kStop;
 
-    if (DEBUG){
+    if (kDebug){
       Serial.print("Comando Sony SIRC protocol: 0x");
       Serial.println(IrReceiver.decodedIRData.command);
       Serial.print("RobotState apos comando: 0x");
-      Serial.println(robotState);
+      Serial.println(state);
       Serial.print("Estrategia apos comando: 0x");
-      Serial.println(strategy);
-      Serial.print("Core ID de receiveSignal(): ");
+      Serial.println(strat);
+      Serial.print("Core ID de receive_signal(): ");
       Serial.println(xPortGetCoreID());
     }
   }
@@ -147,15 +145,15 @@ void receiveSignal(void *arg){
  */
 void blinkLed(void *arg){
   (void)arg;
-  nowTime = millis();
-  if (nowTime - startTime >= 2000L){
-    startTime = millis();
+  now_time = millis();
+  if (now_time - start_time >= 2000L){
+    start_time = millis();
     if (flashing)
       digitalWrite(LED_BUILTIN, LOW);
     else
       digitalWrite(LED_BUILTIN, HIGH);
     flashing = !flashing;
-    if (DEBUG){
+    if (kDebug){
       Serial.print("Core ID de blinkLed(): ");
       Serial.println(xPortGetCoreID());
     }
@@ -163,22 +161,24 @@ void blinkLed(void *arg){
 }
 
 // Parece simples. Só acelera se for centralizado.
-void radar(void *arg, bool start_turning_right){
-  (void)arg;
-  nowTime = millis();
-  while(!digitalRead(SENSOR_1) and !digitalRead(SENSOR_2) and !digitalRead(SENSOR_3) and !digitalRead(SENSOR_4)){
-    if (start_turning_right){
+void radar(bool turnRight){
+  now_time = millis();
+  while(!digitalRead(kSensor1) and !digitalRead(kSensor2) and !digitalRead(kSensor3) and !digitalRead(kSensor4)){
+    if (turnRight){
       // Vira à direita
     }
     else{
       // Vira à esquerda
     }
   }
-  if (nowTime - startTime > 1000L){
-    start_turning_right = !start_turning_right;
-    startTime = millis();
+  if (now_time - start_time > 1000L){
+    turnRight = !turnRight;
+    start_time = millis();
   }
-  while(digitalRead(SENSOR_2) or digitalRead(SENSOR_3)){
+  while(digitalRead(kSensor2) or digitalRead(kSensor3)){
     // Acelera
   }
 }
+
+void sensingTask(){}
+void motorControlTask(){}
