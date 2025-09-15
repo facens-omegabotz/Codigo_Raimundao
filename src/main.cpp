@@ -9,8 +9,6 @@
  * @author Felipe Mastromauro Corrêa
  */
 
-
-#include <EEPROM.h>
 #include "headers/enumerators.h"
 #include "headers/mem_functions.h"
 #include <esp_ipc.h>
@@ -25,75 +23,166 @@
 #define NUM_SENSORS 2
 #define NUM_SAMPLES_PER_SENSOR 4
 
+// Sensores
 
-constexpr uint8_t kSensor1 = 35;
+constexpr uint8_t kSensor1 = 32;
 constexpr uint8_t kSensor2 = 33;
 constexpr uint8_t kSensor3 = 25;
 constexpr uint8_t kSensor4 = 27;
-constexpr uint8_t kIrPin = 4;
+
+// QTRs
+
 constexpr uint8_t kQtr1 = 36;
 constexpr uint8_t kQtr2 = 39;
 
+// IR
+
+constexpr uint8_t kIrPin = 17;
+
+// LEDs
+
+constexpr uint8_t kLed1 = 18;
+constexpr uint8_t kLed2 = 19;
+
+// Motores
+
+constexpr uint8_t kPwmA = 4;
+constexpr uint8_t kPwmB = 21; 
+constexpr uint8_t kAIn1 = 16;
+constexpr uint8_t kAIn2 = 19;
+constexpr uint8_t kBIn1 = 23;
+constexpr uint8_t kBIn2 = 5;
+
 constexpr bool kDebug = true; // Se true, habilita Serial e mensagens.
+
+// Protótipos
+
+// Tasks principais
+
+void CoreTaskOne(void *pvParameters);
+void CoreTaskZero(void *pvParameters);
+
+// Recepção de Infravermelho
+
+void ReceiveIrSignal();
+
+// Calibração de sensores
+
+void CalibrateSensors();
+
+// Detecção de inimigos
+
+void DetectEnemies();
+
+void RunStrategy();
 
 // Globais
 
-uint_fast32_t start_time = millis();
-uint_fast32_t now_time;
-
 RobotState state = kReady;
 Strategy strat = kRadarEsq;
-bool flashing = true;
-bool use_eeprom_calibration = true;
-bool is_calibrated = false;
+constexpr bool kUseNVSCalibration = true;
 
-uint32_t sensorValues[NUM_SENSORS];
+QTRSensorsAnalog qtra((unsigned char[]){kQtr1, kQtr2}, NUM_SENSORS, NUM_SAMPLES_PER_SENSOR);
+uint32_t sensor_values[NUM_SENSORS];
+const char* kMinKeys[NUM_SENSORS] = {"kMinQtr1", "kMinQtr2"};
+const char* kMaxKeys[NUM_SENSORS] = {"kMaxQtr1", "kMaxQtr2"};
 
-// Declaração de funções
+Itamotorino motor_control = Itamotorino(kAIn1, kAIn2, kBIn1, kBIn2, kPwmA, kPwmB);
 
-void calibrate();
-void readEEPROMCalibration();
-void writeEEPROMCalibration();
-void receive_signal(void *arg);
-void blinkLed(void *arg);
-void radar(bool turnRight);
-void sensingTask();
-void motorControlTask();
+TaskHandle_t Core0;
+TaskHandle_t Core1;
 
-void setup() {
-  IrReceiver.begin(kIrPin, false);
-  pinMode(LED_BUILTIN, OUTPUT);
+void setup(){
   if (kDebug){
     Serial.begin(115200);
     while (!Serial){;}
+    Serial.println("Serial initialized.");
+    Serial.print("Starting state: ");
+    Serial.println(state);
+    Serial.print("Starting strat: ");
+    Serial.println(strat);
   }
-  digitalWrite(LED_BUILTIN, HIGH);
+  pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(kSensor1, INPUT);
+  pinMode(kSensor2, INPUT);
+  pinMode(kSensor3, INPUT);
+  pinMode(kSensor4, INPUT);
+  pinMode(kLed1, OUTPUT);
+  pinMode(kLed2, OUTPUT);
+  IrReceiver.begin(kIrPin, true);
+  CalibrateSensors();
+  xTaskCreatePinnedToCore(
+    CoreTaskOne,
+    "CoreTaskOne",
+    10000,
+    NULL,
+    1,
+    &Core1,
+    1
+  );
+
+  xTaskCreatePinnedToCore(
+    CoreTaskZero,
+    "CoreTaskZero",
+    10000,
+    NULL,
+    1,
+    &Core0,
+    0
+  );
 }
 
-// TODO: separar em duas tasks maiores: Sensoriamento e Motores.
-void loop() {
-  esp_ipc_call(PRO_CPU_NUM, receive_signal, NULL);
-  if (state == kRunning){
-    esp_ipc_call(APP_CPU_NUM, blinkLed, NULL);
-  }
-  if (state == kStop){
-    if (kDebug)
-      Serial.println("Recepcao e outras tarefas paradas.");
-    while (true){
-      digitalWrite(LED_BUILTIN, LOW);
-      delay(500);
-      digitalWrite(LED_BUILTIN, HIGH);
-      delay(500);
+void loop(){}
+
+void CalibrateSensors(){
+  qtra.calibrate();
+  if (kUseNVSCalibration){
+    initNVSStorage();
+    for(int i = 0; i < NUM_SENSORS; i++){
+      if (readUnsignedIntFromNVS(kMinKeys[i]) != -1){
+        qtra.calibratedMinimumOn[i] = readUnsignedIntFromNVS(kMinKeys[i]);
+      }
+      if (readUnsignedIntFromNVS(kMaxKeys[i]) != -1){
+        qtra.calibratedMaximumOn[i] = readUnsignedIntFromNVS(kMaxKeys[i]);
+      }
+      if (kDebug){
+        Serial.println("== NVS read ==");
+        Serial.print(kMinKeys[i]);
+        Serial.print(" = ");
+        Serial.println(qtra.calibratedMinimumOn[i]);
+        Serial.print(kMaxKeys[i]);
+        Serial.print(" = ");
+        Serial.println(qtra.calibratedMaximumOn[i]);
+      }
     }
+    closeNVSStorage();
+  }
+  else{
+    for(int i = 0; i < 1200; i++){
+      qtra.calibrate();
+    }
+    initNVSStorage();
+    for(int i = 0; i < NUM_SENSORS; i++){
+      writeUnsignedIntToNVS(kMinKeys[i], qtra.calibratedMinimumOn[i]);
+      writeUnsignedIntToNVS(kMaxKeys[i], qtra.calibratedMaximumOn[i]);
+      if (kDebug){
+        Serial.println("");
+        Serial.println(qtra.calibratedMinimumOn[i]);
+        Serial.println(qtra.calibratedMaximumOn[i]);
+        Serial.println("== NVS written ==");
+        Serial.print(kMinKeys[i]);
+        Serial.print(" = ");
+        Serial.println(readUnsignedIntFromNVS(kMinKeys[i]));
+        Serial.print(kMaxKeys[i]);
+        Serial.print(" = ");
+        Serial.println(readUnsignedIntFromNVS(kMaxKeys[i]));
+      }
+    }
+    closeNVSStorage();
   }
 }
 
-/**
- * Recebe e interpreta o sinal do controle para o funcionamento do robô, definindo
- * os estados e estratégias.
- */
-void receive_signal(void *arg){
-  (void)arg;
+void ReceiveIrSignal(){
   if (IrReceiver.decode()){
     IrReceiver.resume();
     if (state != kStop && state != kRunning && IrReceiver.decodedIRData.command == kReady)
@@ -124,61 +213,44 @@ void receive_signal(void *arg){
     }
     if (IrReceiver.decodedIRData.command == kStop)
       state = kStop;
-
+    
     if (kDebug){
-      Serial.print("Comando Sony SIRC protocol: 0x");
+      Serial.print("Received the command: ");
       Serial.println(IrReceiver.decodedIRData.command);
-      Serial.print("RobotState apos comando: 0x");
+      Serial.print("State after command: ");
       Serial.println(state);
-      Serial.print("Estrategia apos comando: 0x");
+      Serial.print("Strategy after command: ");
       Serial.println(strat);
-      Serial.print("Core ID de receive_signal(): ");
-      Serial.println(xPortGetCoreID());
     }
   }
   IrReceiver.resume(); // might be unnecessary
 }
 
-/**
- * Funcão simples para piscar o LED onboard do ESP com um delay não 
- * blocante de 2 segundos.
- */
-void blinkLed(void *arg){
-  (void)arg;
-  now_time = millis();
-  if (now_time - start_time >= 2000L){
-    start_time = millis();
-    if (flashing)
-      digitalWrite(LED_BUILTIN, LOW);
-    else
-      digitalWrite(LED_BUILTIN, HIGH);
-    flashing = !flashing;
-    if (kDebug){
-      Serial.print("Core ID de blinkLed(): ");
-      Serial.println(xPortGetCoreID());
-    }
-  }
-}
+void RunStrategy(){}
 
-// Parece simples. Só acelera se for centralizado.
-void radar(bool turnRight){
-  now_time = millis();
-  while(!digitalRead(kSensor1) and !digitalRead(kSensor2) and !digitalRead(kSensor3) and !digitalRead(kSensor4)){
-    if (turnRight){
-      // Vira à direita
+void DetectEnemies(){
+  if (state == kRunning){
+    if (digitalRead(kSensor1) || digitalRead(kSensor2) || digitalRead(kSensor3) || digitalRead(kSensor4)){
+      digitalWrite(kLed2, HIGH);
     }
     else{
-      // Vira à esquerda
+      digitalWrite(kLed2, LOW);
     }
-  }
-  if (now_time - start_time > 1000L){
-    turnRight = !turnRight;
-    start_time = millis();
-  }
-  while(digitalRead(kSensor2) or digitalRead(kSensor3)){
-    // Acelera
   }
 }
 
-void sensingTask(){}
-void motorControlTask(){}
+void CoreTaskOne(void *pvParameters){
+  for(;;){
+    ReceiveIrSignal();
+    DetectEnemies();
+  }
+}
+
+void CoreTaskZero(void *pvParameters){
+  for(;;){
+    if (kDebug){
+      Serial.println("Running CoreTaskZero");
+      delay(200);
+    }
+  }
+}

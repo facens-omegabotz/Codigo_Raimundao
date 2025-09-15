@@ -6,9 +6,9 @@
 #include "nvs.h"
 
 bool initNVSStorage();
-bool closeNVSStorage();
-bool writeUnsignedIntToNVS(char* key, uint32_t value);
-uint32_t readUnsignedIntFromNVS(char* key);
+void closeNVSStorage();
+bool writeUnsignedIntToNVS(const char* key, uint32_t value);
+uint32_t readUnsignedIntFromNVS(const char* key);
 
 nvs_handle_t memHandle;
 esp_err_t err;
@@ -26,18 +26,19 @@ bool initNVSStorage(){
     return true;
 }
 
-bool closeNVSStorage(){
+void closeNVSStorage(){
     nvs_close(memHandle);
+    return;
 }
 
-bool writeUnsignedIntToNVS(char *key, uint32_t value){
+bool writeUnsignedIntToNVS(const char *key, uint32_t value){
     err = nvs_set_u32(memHandle, key, value);
     if (err != ESP_OK)
         return false;
     return true;
 }
 
-uint32_t readUnsignedIntFromNVS(char *key){
+uint32_t readUnsignedIntFromNVS(const char *key){
     uint32_t value;
     err = nvs_get_u32(memHandle, key, &value);
     if (err != ESP_OK)
