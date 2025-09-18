@@ -20,6 +20,11 @@
 #include <freertos/FreeRTOS.h>
 
 #define DECODE_SONY // Limita biblioteca de IR ao protocolo Sony.
+#define EVENT_SENSOR1 (1<<0)
+#define EVENT_SENSOR2 (1<<1)
+#define EVENT_SENSOR3 (1<<2)
+#define EVENT_SENSOR4 (1<<3)
+#define EVENT_QRE (1<<4)
 #define NUM_SENSORS 2
 #define NUM_SAMPLES_PER_SENSOR 4
 
@@ -74,7 +79,19 @@ void CalibrateSensors();
 
 void DetectEnemies();
 
+// Estratégias
+
 void RunStrategy();
+
+void RadarEsquerdo();
+
+void RadarDireito();
+
+void CurvaAberta();
+
+void Follow();
+
+void Woodpecker();
 
 // Globais
 
@@ -89,9 +106,10 @@ const char* kMaxKeys[NUM_SENSORS] = {"kMaxQtr1", "kMaxQtr2"};
 
 Itamotorino motor_control = Itamotorino(kAIn1, kAIn2, kBIn1, kBIn2, kPwmA, kPwmB);
 
-TaskHandle_t Core0;
-TaskHandle_t Core1;
+TaskHandle_t core_0;
+TaskHandle_t core_1;
 
+EventGroupHandle_t sensor_events;
 void setup(){
   if (kDebug){
     Serial.begin(115200);
@@ -117,7 +135,7 @@ void setup(){
     10000,
     NULL,
     1,
-    &Core1,
+    &core_1,
     1
   );
 
@@ -127,7 +145,7 @@ void setup(){
     10000,
     NULL,
     1,
-    &Core0,
+    &core_0,
     0
   );
 }
@@ -226,15 +244,41 @@ void ReceiveIrSignal(){
   IrReceiver.resume(); // might be unnecessary
 }
 
-void RunStrategy(){}
+void RunStrategy(){
+  switch (strat){
+    case kRadarEsq:
+      RadarEsquerdo();
+      break;
+    case kRadarDir:
+      RadarDireito();
+      break;
+    case kCurvaAberta:
+      CurvaAberta();
+      break;
+    case kFollowOnly:
+      Follow();
+      break;
+    case kWoodPecker:
+      Woodpecker();
+      break;
+    default:
+      break;
+  }
+}
 
 void DetectEnemies(){
   if (state == kRunning){
-    if (digitalRead(kSensor1) || digitalRead(kSensor2) || digitalRead(kSensor3) || digitalRead(kSensor4)){
-      digitalWrite(kLed2, HIGH);
+    if (digitalRead(kSensor1)){
+      // enviar valor para algum lugar
     }
-    else{
-      digitalWrite(kLed2, LOW);
+    if (digitalRead(kSensor2)){
+      // enviar valor para algum lugar
+    }
+    if (digitalRead(kSensor3)){
+      // enviar valor para algum lugar
+    }
+    if (digitalRead(kSensor4)){
+      // enviar valor para algum lugar
     }
   }
 }
@@ -248,9 +292,35 @@ void CoreTaskOne(void *pvParameters){
 
 void CoreTaskZero(void *pvParameters){
   for(;;){
-    if (kDebug){
-      Serial.println("Running CoreTaskZero");
-      delay(200);
+    RunStrategy();
+    
+    // motor_control.setSpeeds(255, 255);
+    // delay(1000);
+    // motor_control.setSpeeds(0, 0);
+    // delay(1000);
+  }
+}
+
+void RadarEsquerdo(){
+  if (state == kRunning){
+    if (/* nenhum dado */){
+      motor_control.setSpeeds(110, 95);
+    }
+    
+    while (/* dado de sensor central*/){
+      Follow();
+    }
+  }
+}
+
+void RadarDireito(){
+  if (state == kRunning){
+    if (/* nenhum dado */){
+      motor_control.setSpeeds(110, 95);
+    }
+    
+    while (/* dado de sensor central*/){
+      Follow();
     }
   }
 }
