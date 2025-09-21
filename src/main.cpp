@@ -67,31 +67,17 @@ constexpr bool kDebug = true; // Se true, habilita Serial e mensagens.
 void CoreTaskOne(void *pvParameters);
 void CoreTaskZero(void *pvParameters);
 
-// Recepção de Infravermelho
-
 void ReceiveIrSignal();
-
-// Calibração de sensores
-
 void CalibrateSensors();
-
-// Detecção de inimigos
-
 void DetectEnemies();
-
-// Estratégias
-
 void RunStrategy();
-
 void RadarEsquerdo();
-
 void RadarDireito();
-
 void CurvaAberta();
-
-void Follow();
-
 void Woodpecker();
+void Follow();
+void LineDetectedProtocol();
+EventBits_t WaitForSensorEvents();
 
 // Globais
 
@@ -106,10 +92,14 @@ const char* kMaxKeys[NUM_SENSORS] = {"kMaxQtr1", "kMaxQtr2"};
 
 Itamotorino motor_control = Itamotorino(kAIn1, kAIn2, kBIn1, kBIn2, kPwmA, kPwmB);
 
+unsigned long time_1, time_2;
+
 TaskHandle_t core_0;
 TaskHandle_t core_1;
 
 EventGroupHandle_t sensor_events;
+EventBits_t x;
+
 void setup(){
   if (kDebug){
     Serial.begin(115200);
@@ -120,6 +110,7 @@ void setup(){
     Serial.print("Starting strat: ");
     Serial.println(strat);
   }
+  sensor_events = xEventGroupCreate();
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(kSensor1, INPUT);
   pinMode(kSensor2, INPUT);
@@ -151,6 +142,63 @@ void setup(){
 }
 
 void loop(){}
+
+void CoreTaskOne(void *pvParameters){
+  for(;;){
+    ReceiveIrSignal();
+    DetectEnemies();
+  }
+}
+
+void CoreTaskZero(void *pvParameters){
+  for(;;){
+    RunStrategy();
+  }
+}
+
+void ReceiveIrSignal(){
+  if (IrReceiver.decode()){
+    IrReceiver.resume();
+    if (state != kStop && state != kRunning && IrReceiver.decodedIRData.command == kReady)
+      state = kReady;
+
+    if (state == kReady){
+      switch(IrReceiver.decodedIRData.command){
+        case kRunning:
+          state = kRunning;
+          break;
+        case kRadarEsq:
+          strat = kRadarEsq;
+          break;
+        case kRadarDir:
+          strat = kRadarDir;
+          break;
+        case kCurvaAberta:
+          strat = kCurvaAberta;
+          break;
+        case kFollowOnly:
+          strat = kFollowOnly;
+          break;
+        case  kWoodPecker:
+          strat = kWoodPecker;
+        default:
+          break;
+      }
+    }
+    if (IrReceiver.decodedIRData.command == kStop)
+      state = kStop;
+    
+    if (kDebug){
+      Serial.print("Received the command: ");
+      Serial.println(IrReceiver.decodedIRData.command);
+      Serial.print("State after command: ");
+      Serial.println(state);
+      Serial.print("Strategy after command: ");
+      Serial.println(strat);
+    }
+  }
+  IrReceiver.resume(); // might be unnecessary
+}
 
 void CalibrateSensors(){
   qtra.calibrate();
@@ -200,48 +248,14 @@ void CalibrateSensors(){
   }
 }
 
-void ReceiveIrSignal(){
-  if (IrReceiver.decode()){
-    IrReceiver.resume();
-    if (state != kStop && state != kRunning && IrReceiver.decodedIRData.command == kReady)
-      state = kReady;
-
-    if (state == kReady){
-      switch(IrReceiver.decodedIRData.command){
-        case kRunning:
-          state = kRunning;
-          break;
-        case kRadarEsq:
-          strat = kRadarEsq;
-          break;
-        case kRadarDir:
-          strat = kRadarDir;
-          break;
-        case kCurvaAberta:
-          strat = kCurvaAberta;
-          break;
-        case kFollowOnly:
-          strat = kFollowOnly;
-          break;
-        case  kWoodPecker:
-          strat = kWoodPecker;
-        default:
-          break;
-      }
-    }
-    if (IrReceiver.decodedIRData.command == kStop)
-      state = kStop;
-    
-    if (kDebug){
-      Serial.print("Received the command: ");
-      Serial.println(IrReceiver.decodedIRData.command);
-      Serial.print("State after command: ");
-      Serial.println(state);
-      Serial.print("Strategy after command: ");
-      Serial.println(strat);
-    }
-  }
-  IrReceiver.resume(); // might be unnecessary
+EventBits_t WaitForSensorEvents(){
+  return xEventGroupWaitBits(
+    sensor_events, 
+    EVENT_SENSOR1 | EVENT_SENSOR2 | EVENT_SENSOR3 | EVENT_SENSOR4, 
+    true, 
+    false, 
+    pdMS_TO_TICKS(50)
+  );
 }
 
 void RunStrategy(){
@@ -270,57 +284,79 @@ void DetectEnemies(){
   if (state == kRunning){
     if (digitalRead(kSensor1)){
       // enviar valor para algum lugar
+      xEventGroupSetBits(sensor_events, EVENT_SENSOR1);
     }
+    else{
+      xEventGroupClearBits(sensor_events, EVENT_SENSOR1);
+    }
+
     if (digitalRead(kSensor2)){
-      // enviar valor para algum lugar
+      xEventGroupSetBits(sensor_events, EVENT_SENSOR2);
     }
+    else{
+      xEventGroupClearBits(sensor_events, EVENT_SENSOR2);
+    }
+
     if (digitalRead(kSensor3)){
-      // enviar valor para algum lugar
+      xEventGroupSetBits(sensor_events, EVENT_SENSOR3);
+    }
+    else{
+      xEventGroupClearBits(sensor_events, EVENT_SENSOR3);
     }
     if (digitalRead(kSensor4)){
-      // enviar valor para algum lugar
+      xEventGroupSetBits(sensor_events, EVENT_SENSOR4);
     }
-  }
-}
-
-void CoreTaskOne(void *pvParameters){
-  for(;;){
-    ReceiveIrSignal();
-    DetectEnemies();
-  }
-}
-
-void CoreTaskZero(void *pvParameters){
-  for(;;){
-    RunStrategy();
-    
-    // motor_control.setSpeeds(255, 255);
-    // delay(1000);
-    // motor_control.setSpeeds(0, 0);
-    // delay(1000);
+    else{
+      xEventGroupClearBits(sensor_events, EVENT_SENSOR4);
+    }
   }
 }
 
 void RadarEsquerdo(){
   if (state == kRunning){
-    if (/* nenhum dado */){
-      motor_control.setSpeeds(110, 95);
-    }
+    x = WaitForSensorEvents();
     
-    while (/* dado de sensor central*/){
-      Follow();
+    if (!(x | EVENT_SENSOR1) && !(x | EVENT_SENSOR2) && !(x | EVENT_SENSOR3) && !(x | EVENT_SENSOR4)){
+      motor_control.setSpeeds(-191, 191);
+    }
+    else{
+      while(state == kRunning)
+        Follow();
     }
   }
 }
 
 void RadarDireito(){
   if (state == kRunning){
-    if (/* nenhum dado */){
-      motor_control.setSpeeds(110, 95);
-    }
+    x = WaitForSensorEvents();
     
-    while (/* dado de sensor central*/){
-      Follow();
+    if (!(x | EVENT_SENSOR1) && !(x | EVENT_SENSOR2) && !(x | EVENT_SENSOR3) && !(x | EVENT_SENSOR4)){
+      motor_control.setSpeeds(191, -191);
+    }
+    else{
+      while(state == kRunning)
+        Follow();
     }
   }
 }
+
+void CurvaAberta(){}
+
+void Woodpecker(){}
+
+void Follow(){
+  if (state == kRunning){
+    x = WaitForSensorEvents();
+    if (x | EVENT_SENSOR1){
+      motor_control.setSpeeds(-191, 191);
+    }
+    else if (x | EVENT_SENSOR4){
+      motor_control.setSpeeds(191, -191);
+    }
+    if ((x | EVENT_SENSOR2) || (x | EVENT_SENSOR3)){
+      motor_control.setSpeeds(255, 255);
+    }
+  }
+}
+
+void LineDetectedProtocol(){}
