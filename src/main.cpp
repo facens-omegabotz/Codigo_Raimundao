@@ -58,6 +58,14 @@ constexpr uint8_t kAIn2 = 19;
 constexpr uint8_t kBIn1 = 23;
 constexpr uint8_t kBIn2 = 5;
 
+constexpr int kPwmChannelM1 = 1;
+constexpr int kPwmFreqM1 = 1000;
+constexpr int kPwmResolutionM1 = 8;
+
+constexpr int kPwmChannelM2 = 2;
+constexpr int kPwmFreqM2 = 1000;
+constexpr int kPwmResolutionM2 = 8;
+
 constexpr bool kDebug = true; // Se true, habilita Serial e mensagens.
 
 // Protótipos
@@ -101,6 +109,8 @@ EventGroupHandle_t sensor_events;
 EventBits_t x;
 
 void setup(){
+  disableCore1WDT();
+  disableCore0WDT();
   if (kDebug){
     Serial.begin(115200);
     while (!Serial){;}
@@ -110,6 +120,8 @@ void setup(){
     Serial.print("Starting strat: ");
     Serial.println(strat);
   }
+  motor_control.setupADC(kPwmChannelM1, kPwmFreqM1, kPwmResolutionM1, 
+                         kPwmChannelM2, kPwmFreqM2, kPwmResolutionM2);
   sensor_events = xEventGroupCreate();
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(kSensor1, INPUT);
@@ -145,19 +157,21 @@ void loop(){}
 
 void CoreTaskOne(void *pvParameters){
   for(;;){
-    ReceiveIrSignal();
-    DetectEnemies();
+    RunStrategy();
   }
 }
 
 void CoreTaskZero(void *pvParameters){
   for(;;){
-    RunStrategy();
+    ReceiveIrSignal();
+    DetectEnemies();
   }
 }
 
 void ReceiveIrSignal(){
   if (IrReceiver.decode()){
+    Serial.println("Entered Receive Signal");
+    Serial.println(IrReceiver.decodedIRData.command);
     IrReceiver.resume();
     if (state != kStop && state != kRunning && IrReceiver.decodedIRData.command == kReady)
       state = kReady;
@@ -340,7 +354,14 @@ void RadarDireito(){
   }
 }
 
-void CurvaAberta(){}
+void CurvaAberta(){
+  if (state == kRunning){
+    // virar para alguma direção
+    // acelerar por um tempo
+    // virar abruptamente de volta
+    // follow
+  }
+}
 
 void Woodpecker(){}
 
