@@ -9,8 +9,10 @@
  * @author Felipe Mastromauro Corrêa
  */
 
-#include "headers/enumerators.h"
-#include "headers/mem_functions.h"
+#define DECODE_SONY // Limita biblioteca de IR ao protocolo Sony.
+
+#include "enumerators.h"
+#include "mem_functions.h"
 #include <esp_ipc.h>
 #include <Arduino.h>
 #include <QTRSensors.h>
@@ -19,7 +21,6 @@
 #include <freertos/task.h>
 #include <freertos/FreeRTOS.h>
 
-#define DECODE_SONY // Limita biblioteca de IR ao protocolo Sony.
 #define EVENT_SENSOR1 (1<<0)
 #define EVENT_SENSOR2 (1<<1)
 #define EVENT_SENSOR3 (1<<2)
@@ -54,7 +55,7 @@ constexpr uint8_t kLed2 = 19;
 constexpr uint8_t kPwmA = 4;
 constexpr uint8_t kPwmB = 21; 
 constexpr uint8_t kAIn1 = 16;
-constexpr uint8_t kAIn2 = 19;
+constexpr uint8_t kAIn2 = 22;
 constexpr uint8_t kBIn1 = 23;
 constexpr uint8_t kBIn2 = 5;
 
@@ -67,6 +68,7 @@ constexpr int kPwmFreqM2 = 1000;
 constexpr int kPwmResolutionM2 = 8;
 
 constexpr bool kDebug = true; // Se true, habilita Serial e mensagens.
+constexpr bool kWhiteLine = true;
 
 // Protótipos
 
@@ -78,6 +80,7 @@ void CoreTaskZero(void *pvParameters);
 void ReceiveIrSignal();
 void CalibrateSensors();
 void DetectEnemies();
+void DetectLine();
 void RunStrategy();
 void RadarEsquerdo();
 void RadarDireito();
@@ -85,6 +88,7 @@ void CurvaAberta();
 void Woodpecker();
 void Follow();
 void LineDetectedProtocol();
+void KillMotors();
 EventBits_t WaitForSensorEvents();
 
 // Globais
@@ -131,6 +135,7 @@ void setup(){
   pinMode(kLed1, OUTPUT);
   pinMode(kLed2, OUTPUT);
   IrReceiver.begin(kIrPin, true);
+  IrReceiver.enableIRIn();
   CalibrateSensors();
   xTaskCreatePinnedToCore(
     CoreTaskOne,
@@ -157,61 +162,65 @@ void loop(){}
 
 void CoreTaskOne(void *pvParameters){
   for(;;){
-    RunStrategy();
+    if (state != kStop)
+      RunStrategy();
+    else{
+      KillMotors();
+      vTaskDelete(core_1);
+    }
   }
 }
 
 void CoreTaskZero(void *pvParameters){
   for(;;){
-    ReceiveIrSignal();
+    if (IrReceiver.decode())
+      ReceiveIrSignal();
     DetectEnemies();
   }
 }
 
 void ReceiveIrSignal(){
-  if (IrReceiver.decode()){
-    Serial.println("Entered Receive Signal");
-    Serial.println(IrReceiver.decodedIRData.command);
-    IrReceiver.resume();
-    if (state != kStop && state != kRunning && IrReceiver.decodedIRData.command == kReady)
-      state = kReady;
+  Serial.println("Entered Receive Signal");
+  Serial.println(IrReceiver.decodedIRData.command);
+  IrReceiver.resume();
+  if (state != kStop && state != kRunning && IrReceiver.decodedIRData.command == kReady)
+    state = kReady;
 
-    if (state == kReady){
-      switch(IrReceiver.decodedIRData.command){
-        case kRunning:
-          state = kRunning;
-          break;
-        case kRadarEsq:
-          strat = kRadarEsq;
-          break;
-        case kRadarDir:
-          strat = kRadarDir;
-          break;
-        case kCurvaAberta:
-          strat = kCurvaAberta;
-          break;
-        case kFollowOnly:
-          strat = kFollowOnly;
-          break;
-        case  kWoodPecker:
-          strat = kWoodPecker;
-        default:
-          break;
-      }
-    }
-    if (IrReceiver.decodedIRData.command == kStop)
-      state = kStop;
-    
-    if (kDebug){
-      Serial.print("Received the command: ");
-      Serial.println(IrReceiver.decodedIRData.command);
-      Serial.print("State after command: ");
-      Serial.println(state);
-      Serial.print("Strategy after command: ");
-      Serial.println(strat);
+  if (state == kReady){
+    switch(IrReceiver.decodedIRData.command){
+      case kRunning:
+        state = kRunning;
+        break;
+      case kRadarEsq:
+        strat = kRadarEsq;
+        break;
+      case kRadarDir:
+        strat = kRadarDir;
+        break;
+      case kCurvaAberta:
+        strat = kCurvaAberta;
+        break;
+      case kFollowOnly:
+        strat = kFollowOnly;
+        break;
+      case  kWoodPecker:
+        strat = kWoodPecker;
+      default:
+        break;
     }
   }
-  IrReceiver.resume(); // might be unnecessary
+  if (IrReceiver.decodedIRData.command == kStop)
+    state = kStop;
+  
+  if (kDebug){
+    Serial.print("Received the command: ");
+    Serial.println(IrReceiver.decodedIRData.command);
+    Serial.print("State after command: ");
+    Serial.println(state);
+    Serial.print("Strategy after command: ");
+    Serial.println(strat);
+  }
+  // IrReceiver.resume(); // might be unnecessary
 }
 
 void CalibrateSensors(){
@@ -297,7 +306,6 @@ void RunStrategy(){
 void DetectEnemies(){
   if (state == kRunning){
     if (digitalRead(kSensor1)){
-      // enviar valor para algum lugar
       xEventGroupSetBits(sensor_events, EVENT_SENSOR1);
     }
     else{
@@ -326,12 +334,17 @@ void DetectEnemies(){
   }
 }
 
+void DetectLine(){
+  if (state == kRunning){
+    int line_info = qtra.readLine(sensor_values, QTR_EMITTERS_ON, kWhiteLine);
+  }
+}
+
 void RadarEsquerdo(){
   if (state == kRunning){
     x = WaitForSensorEvents();
-    
-    if (!(x | EVENT_SENSOR1) && !(x | EVENT_SENSOR2) && !(x | EVENT_SENSOR3) && !(x | EVENT_SENSOR4)){
-      motor_control.setSpeeds(-191, 191);
+    if (!(x & EVENT_SENSOR1) && !(x & EVENT_SENSOR2) && !(x & EVENT_SENSOR3) && !(x & EVENT_SENSOR4)){
+      motor_control.setSpeeds(191, 191);
     }
     else{
       while(state == kRunning)
@@ -345,7 +358,7 @@ void RadarDireito(){
     x = WaitForSensorEvents();
     
     if (!(x | EVENT_SENSOR1) && !(x | EVENT_SENSOR2) && !(x | EVENT_SENSOR3) && !(x | EVENT_SENSOR4)){
-      motor_control.setSpeeds(191, -191);
+      motor_control.setSpeeds(-191, 191);
     }
     else{
       while(state == kRunning)
@@ -368,16 +381,23 @@ void Woodpecker(){}
 void Follow(){
   if (state == kRunning){
     x = WaitForSensorEvents();
-    if (x | EVENT_SENSOR1){
+    if (kDebug){
+      Serial.println("Entered Follow");
+    }
+    if (x & EVENT_SENSOR1 || ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2))){
+      motor_control.setSpeeds(191, 191);
+    }
+    else if (x & EVENT_SENSOR4 || ((x & EVENT_SENSOR4) && (x & EVENT_SENSOR3))){
       motor_control.setSpeeds(-191, 191);
     }
-    else if (x | EVENT_SENSOR4){
-      motor_control.setSpeeds(191, -191);
-    }
-    if ((x | EVENT_SENSOR2) || (x | EVENT_SENSOR3)){
-      motor_control.setSpeeds(255, 255);
+    if ((x & EVENT_SENSOR2) || (x & EVENT_SENSOR3) || ((x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
+      motor_control.setSpeeds(255, -255);
     }
   }
 }
 
 void LineDetectedProtocol(){}
+
+void KillMotors(){
+  motor_control.setSpeeds(0, 0);
+}
