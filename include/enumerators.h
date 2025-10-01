@@ -15,3 +15,8 @@ enum Strategy {
   kFollowOnly,
   kWoodPecker
 };
+
+enum Direction {
+  kLeft,
+  kRight
+};

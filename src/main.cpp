@@ -87,7 +87,7 @@ void RadarDireito();
 void CurvaAberta();
 void Woodpecker();
 void Follow();
-void LineDetectedProtocol();
+void LineDetectedProtocol(Direction direction);
 void KillMotors();
 EventBits_t WaitForSensorEvents();
 
@@ -95,7 +95,7 @@ EventBits_t WaitForSensorEvents();
 
 RobotState state = kReady;
 Strategy strat = kRadarEsq;
-constexpr bool kUseNVSCalibration = true;
+constexpr bool kUseNVSCalibration = false;
 
 QTRSensorsAnalog qtra((unsigned char[]){kQtr1, kQtr2}, NUM_SENSORS, NUM_SAMPLES_PER_SENSOR);
 uint32_t sensor_values[NUM_SENSORS];
@@ -113,6 +113,7 @@ EventGroupHandle_t sensor_events;
 EventBits_t x;
 
 void setup(){
+  analogReadResolution(10);
   disableCore1WDT();
   disableCore0WDT();
   if (kDebug){
@@ -176,12 +177,18 @@ void CoreTaskZero(void *pvParameters){
     if (IrReceiver.decode())
       ReceiveIrSignal();
     DetectEnemies();
+    DetectLine();
   }
 }
 
+/**
+ * Função de recepção e interpretação do sinal de infravermelho.
+ */
 void ReceiveIrSignal(){
-  Serial.println("Entered Receive Signal");
-  Serial.println(IrReceiver.decodedIRData.command);
+  if (kDebug){
+    Serial.println("Entered Receive Signal");
+    Serial.println(IrReceiver.decodedIRData.command);
+  }
   IrReceiver.resume();
   if (state != kStop && state != kRunning && IrReceiver.decodedIRData.command == kReady)
     state = kReady;
@@ -223,6 +230,9 @@ void ReceiveIrSignal(){
   // IrReceiver.resume(); // might be unnecessary
 }
 
+/**
+ * Função para calibrar os sensores de linha a partir da calibração manual ou da memória NVS.
+ */
 void CalibrateSensors(){
   qtra.calibrate();
   if (kUseNVSCalibration){
@@ -247,9 +257,11 @@ void CalibrateSensors(){
     closeNVSStorage();
   }
   else{
+    digitalWrite(kLed2, HIGH);
     for(int i = 0; i < 1200; i++){
       qtra.calibrate();
     }
+    digitalWrite(kLed2, LOW);
     initNVSStorage();
     for(int i = 0; i < NUM_SENSORS; i++){
       writeUnsignedIntToNVS(kMinKeys[i], qtra.calibratedMinimumOn[i]);
@@ -271,16 +283,22 @@ void CalibrateSensors(){
   }
 }
 
+/**
+ * Função para obter os valores dos bits do EventGroup.
+ */
 EventBits_t WaitForSensorEvents(){
   return xEventGroupWaitBits(
     sensor_events, 
-    EVENT_SENSOR1 | EVENT_SENSOR2 | EVENT_SENSOR3 | EVENT_SENSOR4, 
+    EVENT_SENSOR1 | EVENT_SENSOR2 | EVENT_SENSOR3 | EVENT_SENSOR4 | EVENT_QRE, 
     true, 
     false, 
-    pdMS_TO_TICKS(50)
+    pdMS_TO_TICKS(30)
   );
 }
 
+/**
+ * Função para decidir a estratégia a ser utilizada.
+ */
 void RunStrategy(){
   switch (strat){
     case kRadarEsq:
@@ -303,6 +321,9 @@ void RunStrategy(){
   }
 }
 
+/**
+ * Função para detectar o inimigo e escrever no EventGroup.
+ */
 void DetectEnemies(){
   if (state == kRunning){
     if (digitalRead(kSensor1)){
@@ -334,12 +355,25 @@ void DetectEnemies(){
   }
 }
 
+/**
+ * Função para detectar a linha e escrever no EventGroup.
+ */
 void DetectLine(){
   if (state == kRunning){
     int line_info = qtra.readLine(sensor_values, QTR_EMITTERS_ON, kWhiteLine);
+    if (line_info > 500)
+      xEventGroupSetBits(sensor_events, EVENT_QRE);
+    else
+      xEventGroupClearBits(sensor_events, EVENT_QRE);
   }
 }
 
+// PODERIA SER REFATORADO PARA USAR SOMENTE UMA FUNÇÃO
+
+/** 
+ * Função para procurar o inimigo iniciando a rotação para a esquerda. 
+ * Se encontrar, vira Follow();
+ */
 void RadarEsquerdo(){
   if (state == kRunning){
     x = WaitForSensorEvents();
@@ -353,10 +387,12 @@ void RadarEsquerdo(){
   }
 }
 
+/* Função para procurar o inimigo iniciando a rotação para a direita. 
+ * Se encontrar, vira Follow();
+ */
 void RadarDireito(){
   if (state == kRunning){
     x = WaitForSensorEvents();
-    
     if (!(x | EVENT_SENSOR1) && !(x | EVENT_SENSOR2) && !(x | EVENT_SENSOR3) && !(x | EVENT_SENSOR4)){
       motor_control.setSpeeds(-191, 191);
     }
@@ -367,22 +403,64 @@ void RadarDireito(){
   }
 }
 
+/**
+ * Estratégia que faz uma curva aberta para depois entrar em follow.
+ */
 void CurvaAberta(){
+  time_1 = millis();
   if (state == kRunning){
-    // virar para alguma direção
-    // acelerar por um tempo
-    // virar abruptamente de volta
+    Direction direction;
+    x = WaitForSensorEvents();
+    if (x & EVENT_SENSOR1){
+      direction = kLeft;
+      motor_control.setSpeeds(-191, 191); // esquerda
+    }
+    else if (x & EVENT_SENSOR4){
+      direction = kRight;
+      motor_control.setSpeeds(191, 191); // direita
+    }
+    if (x & EVENT_QRE){
+      if (direction == kLeft)
+        LineDetectedProtocol(kRight);
+      else
+        LineDetectedProtocol(kLeft);
+    }
+    if (millis() - time_1 >= 2000){
+      if (direction == kLeft)
+        motor_control.setSpeeds(191, 191); 
+      else
+        motor_control.setSpeeds(-191, 191);
+        vTaskDelay(300);
+    }
+    Follow();
+  }
+}
+
+// hardcoded, mas é a vida
+void Woodpecker(){
+  if (state == kRunning){
+    // dar uma bicadinha
+    // dar outra bicadinha
     // follow
   }
 }
 
-void Woodpecker(){}
-
+/**
+ * Estratégia que somente segue o inimigo diretamente.
+ */
 void Follow(){
   if (state == kRunning){
     x = WaitForSensorEvents();
     if (kDebug){
       Serial.println("Entered Follow");
+    }
+    if (x & EVENT_QRE){
+      if (x & EVENT_SENSOR1)
+        LineDetectedProtocol(kLeft);
+      else if (x & EVENT_SENSOR4)
+        LineDetectedProtocol(kRight);
+      else
+        LineDetectedProtocol(kLeft);
     }
     if (x & EVENT_SENSOR1 || ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2))){
       motor_control.setSpeeds(191, 191);
@@ -395,8 +473,18 @@ void Follow(){
     }
   }
 }
-
-void LineDetectedProtocol(){}
+/**
+ * Protocolo do que fazer ao detectar linha. Deve interromper a estratégia.
+ */
+void LineDetectedProtocol(Direction direction){
+  motor_control.setSpeeds(-255, 255);
+  vTaskDelay(pdMS_TO_TICKS(300));
+  if (direction == kLeft)
+    motor_control.setSpeeds(191, -191);
+  else
+    motor_control.setSpeeds(-191, 191);
+  vTaskDelay(pdMS_TO_TICKS(300));
+}
 
 void KillMotors(){
   motor_control.setSpeeds(0, 0);
