@@ -67,7 +67,7 @@ constexpr int kPwmChannelM2 = 2;
 constexpr int kPwmFreqM2 = 1000;
 constexpr int kPwmResolutionM2 = 8;
 
-constexpr bool kDebug = true; // Se true, habilita Serial e mensagens.
+constexpr bool kDebug = false; // Se true, habilita Serial e mensagens.
 constexpr bool kWhiteLine = true;
 
 // Protótipos
@@ -95,7 +95,7 @@ EventBits_t WaitForSensorEvents();
 
 RobotState state = kReady;
 Strategy strat = kRadarEsq;
-constexpr bool kUseNVSCalibration = false;
+constexpr bool kUseNVSCalibration = true;
 
 QTRSensorsAnalog qtra((unsigned char[]){kQtr1, kQtr2}, NUM_SENSORS, NUM_SAMPLES_PER_SENSOR);
 uint32_t sensor_values[NUM_SENSORS];
@@ -378,7 +378,7 @@ void RadarEsquerdo(){
   if (state == kRunning){
     x = WaitForSensorEvents();
     if (!(x & EVENT_SENSOR1) && !(x & EVENT_SENSOR2) && !(x & EVENT_SENSOR3) && !(x & EVENT_SENSOR4)){
-      motor_control.setSpeeds(191, 191);
+      motor_control.setSpeeds(191, -191);
     }
     else{
       while(state == kRunning)
@@ -392,6 +392,8 @@ void RadarEsquerdo(){
  */
 void RadarDireito(){
   if (state == kRunning){
+    if (kDebug)
+      Serial.println(x, BIN);
     x = WaitForSensorEvents();
     if (!(x | EVENT_SENSOR1) && !(x | EVENT_SENSOR2) && !(x | EVENT_SENSOR3) && !(x | EVENT_SENSOR4)){
       motor_control.setSpeeds(-191, 191);
@@ -413,11 +415,11 @@ void CurvaAberta(){
     x = WaitForSensorEvents();
     if (x & EVENT_SENSOR1){
       direction = kLeft;
-      motor_control.setSpeeds(-191, 191); // esquerda
+      motor_control.setSpeeds(-191, 191);
     }
     else if (x & EVENT_SENSOR4){
       direction = kRight;
-      motor_control.setSpeeds(191, 191); // direita
+      motor_control.setSpeeds(191, 191);
     }
     if (x & EVENT_QRE){
       if (direction == kLeft)
@@ -451,9 +453,6 @@ void Woodpecker(){
 void Follow(){
   if (state == kRunning){
     x = WaitForSensorEvents();
-    if (kDebug){
-      Serial.println("Entered Follow");
-    }
     if (x & EVENT_QRE){
       if (x & EVENT_SENSOR1)
         LineDetectedProtocol(kLeft);
@@ -462,14 +461,18 @@ void Follow(){
       else
         LineDetectedProtocol(kLeft);
     }
-    if (x & EVENT_SENSOR1 || ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2))){
-      motor_control.setSpeeds(191, 191);
+    if (x & EVENT_SENSOR1 ||
+       ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2)) ||
+       ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
+      motor_control.setSpeeds(191, -191);
     }
-    else if (x & EVENT_SENSOR4 || ((x & EVENT_SENSOR4) && (x & EVENT_SENSOR3))){
+    else if (x & EVENT_SENSOR4 ||
+            ((x & EVENT_SENSOR4) && (x & EVENT_SENSOR3)) || 
+            ((x & EVENT_SENSOR4) && (x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
       motor_control.setSpeeds(-191, 191);
     }
-    if ((x & EVENT_SENSOR2) || (x & EVENT_SENSOR3) || ((x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
-      motor_control.setSpeeds(255, -255);
+    else if ((x & EVENT_SENSOR2) || (x & EVENT_SENSOR3) || ((x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
+      motor_control.setSpeeds(-255, -255);
     }
   }
 }
