@@ -1,5 +1,5 @@
-#ifndef HEADERS_MEM_FUNCTIONS_H_
-#define HEADERS_MEM_FUNCTIONS_H_
+#ifndef INCLUDE_MEM_FUNCTIONS_H_
+#define INCLUDE_MEM_FUNCTIONS_H_
 #endif
 
 #include "nvs_flash.h"
