@@ -1,5 +1,5 @@
-#ifndef HEADERS_ENUMERATORS_H_
-#define HEADERS_ENUMERATORS_H_
+#ifndef INCLUDE_ENUMERATORS_H_
+#define INCLUDE_ENUMERATORS_H_
 #endif
 
 enum RobotState {
