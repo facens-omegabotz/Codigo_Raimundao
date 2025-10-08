@@ -1,5 +1,5 @@
-#ifndef HEADERS_SENSING_H_
-#define HEADERS_SENSING_H_
+#ifndef INCLUDE_SENSING_H_
+#define INCLUDE_SENSING_H_
 #endif
 
 #include <IRremote.hpp>
