@@ -14,7 +14,7 @@ class NVSOperator{
 
     public:
         NVSOperator(char* name);
-        bool getNvsOk();
+        bool getNVSOk();
         bool InitStorage();
         void CloseStorage();
         bool WriteUnsignedIntToNVS(const char *key, uint32_t value);
@@ -26,7 +26,7 @@ NVSOperator::NVSOperator(char *name){
     this->nvs_ok = InitStorage();
 }
 
-bool NVSOperator::getNvsOk(){
+bool NVSOperator::getNVSOk(){
     return this->nvs_ok;
 }
 
