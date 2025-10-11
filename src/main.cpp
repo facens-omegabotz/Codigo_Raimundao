@@ -11,8 +11,10 @@
 
 #define DECODE_SONY // Limita biblioteca de IR ao protocolo Sony.
 
-#include "enumerators.h"
-#include "mem_functions.h"
+#include <enumerators.h>
+#include <nvs_operator.hpp>
+#include <motor_control.hpp>
+
 #include <esp_ipc.h>
 #include <Arduino.h>
 #include <QTRSensors.h>
@@ -55,25 +57,6 @@ constexpr uint8_t kIrPin = 17;
 constexpr uint8_t kLed1 = 18;
 constexpr uint8_t kLed2 = 19;
 
-// Pinos da ponte H (TB6612FNG)
-
-constexpr uint8_t kPwmA = 4;
-constexpr uint8_t kPwmB = 21; 
-constexpr uint8_t kAIn1 = 16;
-constexpr uint8_t kAIn2 = 22;
-constexpr uint8_t kBIn1 = 23;
-constexpr uint8_t kBIn2 = 5;
-
-// Valores para configuração de PWM
-
-constexpr int kPwmChannelM1 = 1;
-constexpr int kPwmFreqM1 = 1000;
-constexpr int kPwmResolutionM1 = 8;
-
-constexpr int kPwmChannelM2 = 2;
-constexpr int kPwmFreqM2 = 1000;
-constexpr int kPwmResolutionM2 = 8;
-
 // Constantes de configuração
 
 constexpr bool kDebug = false;            // Se true, habilita Serial e mensagens.
@@ -101,8 +84,8 @@ EventBits_t WaitForSensorEvents();
 
 // Globais
 
-RobotState state = kReady;
-Strategy strat = kRadarEsq;
+RobotState state = RobotState::kReady;
+Strategy strat = Strategy::kRadarEsq;
 
 QTRSensorsAnalog qtra((unsigned char[]){kQtr1, kQtr2}, NUM_SENSORS, NUM_SAMPLES_PER_SENSOR);
 uint32_t sensor_values[NUM_SENSORS];
@@ -110,7 +93,8 @@ uint32_t sensor_values[NUM_SENSORS];
 const char* kMinKeys[NUM_SENSORS] = {"kMinQtr1", "kMinQtr2"};
 const char* kMaxKeys[NUM_SENSORS] = {"kMaxQtr1", "kMaxQtr2"};
 
-Itamotorino motor_control = Itamotorino(kAIn1, kAIn2, kBIn1, kBIn2, kPwmA, kPwmB);
+MotorControl motor_control = MotorControl();
+NVSOperator nvs_operator = NVSOperator("Valores QTR");
 
 unsigned long time_1, time_2;
 
@@ -130,12 +114,12 @@ void setup(){
     while (!Serial){;}
     Serial.println("Serial initialized.");
     Serial.print("Starting state: ");
-    Serial.println(state);
+    Serial.println(static_cast<uint16_t>(state));
     Serial.print("Starting strat: ");
-    Serial.println(strat);
+    Serial.println(static_cast<uint16_t>(strat));
   }
-  motor_control.setupADC(kPwmChannelM1, kPwmFreqM1, kPwmResolutionM1, 
-                         kPwmChannelM2, kPwmFreqM2, kPwmResolutionM2);
+  // motor_control.setupADC(kPwmChannelM1, kPwmFreqM1, kPwmResolutionM1, 
+  //                        kPwmChannelM2, kPwmFreqM2, kPwmResolutionM2);
   sensor_events = xEventGroupCreate();
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(kSensor1, INPUT);
@@ -175,7 +159,7 @@ void loop(){} // Loop vazio para funcionamento adequado das tasks.
 /// @param pvParameters Ponteiro para void que pode conter dados importantes à tarefa. Inutilizado neste caso.
 void CoreTaskOne(void *pvParameters){
   for(;;){
-    if (state != kStop)
+    if (state != RobotState::kStop)
       RunStrategy();
     else{
       KillMotors();
@@ -202,56 +186,61 @@ void ReceiveIrSignal(){
     Serial.println(IrReceiver.decodedIRData.command);
   }
   IrReceiver.resume();
-  if (state != kStop && state != kRunning && IrReceiver.decodedIRData.command == kReady)
-    state = kReady;
+  if (state != RobotState::kStop && state != RobotState::kRunning 
+      && IrReceiver.decodedIRData.command == static_cast<uint16_t>(RobotState::kReady))
+    state = RobotState::kReady;
 
-  if (state == kReady){
+  if (state == RobotState::kReady){
     switch(IrReceiver.decodedIRData.command){
-      case kRunning:
-        state = kRunning;
+      case static_cast<uint16_t>(RobotState::kRunning):
+        state = RobotState::kRunning;
         break;
-      case kRadarEsq:
-        strat = kRadarEsq;
+
+      case static_cast<uint16_t>(Strategy::kRadarEsq):
+        strat = Strategy::kRadarEsq;
         break;
-      case kRadarDir:
-        strat = kRadarDir;
+
+      case static_cast<uint16_t>(Strategy::kRadarDir):
+        strat = Strategy::kRadarDir;
         break;
-      case kCurvaAberta:
-        strat = kCurvaAberta;
+
+      case static_cast<uint16_t>(Strategy::kCurvaAberta):
+        strat = Strategy::kCurvaAberta;
         break;
-      case kFollowOnly:
-        strat = kFollowOnly;
+
+      case static_cast<uint16_t>(Strategy::kFollowOnly):
+        strat = Strategy::kFollowOnly;
         break;
-      case  kWoodPecker:
-        strat = kWoodPecker;
+
+      case static_cast<uint16_t>(Strategy::kWoodPecker):
+        strat = Strategy::kWoodPecker;
       default:
         break;
     }
   }
-  if (IrReceiver.decodedIRData.command == kStop)
-    state = kStop;
+  if (IrReceiver.decodedIRData.command == static_cast<uint16_t>(RobotState::kStop))
+    state = RobotState::kStop;
   
   if (kDebug){
     Serial.print("Received the command: ");
     Serial.println(IrReceiver.decodedIRData.command);
     Serial.print("State after command: ");
-    Serial.println(state);
+    Serial.println(static_cast<uint16_t>(state));
     Serial.print("Strategy after command: ");
-    Serial.println(strat);
+    Serial.println(static_cast<uint16_t>(strat));
   }
 }
 
 /// @brief Função para calibrar os sensores QTR. Obtém a calibração da memória não volátil ou calibra os sensores.
 void CalibrateSensors(){
   qtra.calibrate();
-  if (kUseNVSCalibration){
-    initNVSStorage();
+  if (kUseNVSCalibration && nvs_operator.getNVSOk()){
     for(int i = 0; i < NUM_SENSORS; i++){
-      if (readUnsignedIntFromNVS(kMinKeys[i]) != -1){
-        qtra.calibratedMinimumOn[i] = readUnsignedIntFromNVS(kMinKeys[i]);
+      if (nvs_operator.ReadUnsignedIntFromNVS(kMinKeys[i]) != -1){
+        qtra.calibratedMinimumOn[i] = nvs_operator.ReadUnsignedIntFromNVS(kMinKeys[i]);
       }
-      if (readUnsignedIntFromNVS(kMaxKeys[i]) != -1){
-        qtra.calibratedMaximumOn[i] = readUnsignedIntFromNVS(kMaxKeys[i]);
+      if (nvs_operator.ReadUnsignedIntFromNVS(kMaxKeys[i]) != -1){
+        qtra.calibratedMaximumOn[i] = nvs_operator.ReadUnsignedIntFromNVS(kMaxKeys[i]);
       }
       if (kDebug){
         Serial.println("== NVS read ==");
@@ -263,7 +252,6 @@ void CalibrateSensors(){
         Serial.println(qtra.calibratedMaximumOn[i]);
       }
     }
-    closeNVSStorage();
   }
   else{
     digitalWrite(kLed2, HIGH);
@@ -271,10 +259,9 @@ void CalibrateSensors(){
       qtra.calibrate();
     }
     digitalWrite(kLed2, LOW);
-    initNVSStorage();
     for(int i = 0; i < NUM_SENSORS; i++){
-      writeUnsignedIntToNVS(kMinKeys[i], qtra.calibratedMinimumOn[i]);
-      writeUnsignedIntToNVS(kMaxKeys[i], qtra.calibratedMaximumOn[i]);
+      nvs_operator.WriteUnsignedIntToNVS(kMinKeys[i], qtra.calibratedMinimumOn[i]);
+      nvs_operator.WriteUnsignedIntToNVS(kMaxKeys[i], qtra.calibratedMaximumOn[i]);
       if (kDebug){
         Serial.println("");
         Serial.println(qtra.calibratedMinimumOn[i]);
@@ -282,14 +269,14 @@ void CalibrateSensors(){
         Serial.println("== NVS written ==");
         Serial.print(kMinKeys[i]);
         Serial.print(" = ");
-        Serial.println(readUnsignedIntFromNVS(kMinKeys[i]));
+        Serial.println(nvs_operator.ReadUnsignedIntFromNVS(kMinKeys[i]));
         Serial.print(kMaxKeys[i]);
         Serial.print(" = ");
-        Serial.println(readUnsignedIntFromNVS(kMaxKeys[i]));
+        Serial.println(nvs_operator.ReadUnsignedIntFromNVS(kMaxKeys[i]));
       }
     }
-    closeNVSStorage();
   }
+  nvs_operator.CloseStorage();
 }
 
 /// @brief Função para esperar a obtenção de eventos de todos os sensores. Possui um timeout de 30ms.
@@ -307,19 +294,19 @@ EventBits_t WaitForSensorEvents(){
 /// @brief Função para executar a estratégia selecionada pelo operador.
 void RunStrategy(){
   switch (strat){
-    case kRadarEsq:
+    case Strategy::kRadarEsq:
       RadarEsquerdo();
       break;
-    case kRadarDir:
+    case Strategy::kRadarDir:
       RadarDireito();
       break;
-    case kCurvaAberta:
+    case Strategy::kCurvaAberta:
       CurvaAberta();
       break;
-    case kFollowOnly:
+    case Strategy::kFollowOnly:
       Follow();
       break;
-    case kWoodPecker:
+    case Strategy::kWoodPecker:
       Woodpecker();
       break;
     default:
@@ -329,7 +316,7 @@ void RunStrategy(){
 
 /// @brief Função que lê os valores de cada um dos sensores infravermelhos e escreve ou limpa os bits no EventGroup global.
 void DetectEnemies(){
-  if (state == kRunning){
+  if (state == RobotState::kRunning){
     if (digitalRead(kSensor1)){
       xEventGroupSetBits(sensor_events, EVENT_SENSOR1);
     }
@@ -363,7 +350,7 @@ void DetectEnemies(){
  * Função para detectar a linha e escrever no EventGroup.
  */
 void DetectLine(){
-  if (state == kRunning){
+  if (state == RobotState::kRunning){
     int line_info = qtra.readLine(sensor_values, QTR_EMITTERS_ON, kWhiteLine);
     if (line_info > 500)
       xEventGroupSetBits(sensor_events, EVENT_QRE);
@@ -377,13 +364,13 @@ void DetectLine(){
  * Ao detectar, muda a estratégia para Follow();
  */
 void RadarEsquerdo(){
-  if (state == kRunning){
+  if (state == RobotState::kRunning){
     x = WaitForSensorEvents();
     if (!(x & EVENT_SENSOR1) && !(x & EVENT_SENSOR2) && !(x & EVENT_SENSOR3) && !(x & EVENT_SENSOR4)){
-      motor_control.setSpeeds(191, -191);
+      motor_control.Turn(Direction::kLeft);
     }
     else{
-      while(state == kRunning)
+      while(state == RobotState::kRunning)
         Follow();
     }
   }
@@ -394,15 +381,15 @@ void RadarEsquerdo(){
  * Ao detectar, muda a estratégia para Follow();
  */
 void RadarDireito(){
-  if (state == kRunning){
+  if (state == RobotState::kRunning){
     if (kDebug)
       Serial.println(x, BIN);
     x = WaitForSensorEvents();
     if (!(x | EVENT_SENSOR1) && !(x | EVENT_SENSOR2) && !(x | EVENT_SENSOR3) && !(x | EVENT_SENSOR4)){
-      motor_control.setSpeeds(-191, 191);
+      motor_control.Turn(Direction::kRight);
     }
     else{
-      while(state == kRunning)
+      while(state == RobotState::kRunning)
         Follow();
     }
   }
@@ -411,28 +398,28 @@ void RadarDireito(){
 /// @brief Estratégia que faz uma curva aberta antes de entrar em Follow();
 void CurvaAberta(){
   time_1 = millis();
-  if (state == kRunning){
+  if (state == RobotState::kRunning){
     Direction direction;
     x = WaitForSensorEvents();
     if (x & EVENT_SENSOR1){
-      direction = kLeft;
-      motor_control.setSpeeds(-191, 191);
+      direction = Direction::kLeft;
+      motor_control.Turn(direction);
     }
     else if (x & EVENT_SENSOR4){
-      direction = kRight;
-      motor_control.setSpeeds(191, 191);
+      direction = Direction::kRight;
+      motor_control.Turn(direction);
     }
     if (x & EVENT_QRE){
-      if (direction == kLeft)
-        LineDetectedProtocol(kRight);
+      if (direction == Direction::kLeft)
+        LineDetectedProtocol(Direction::kRight);
       else
-        LineDetectedProtocol(kLeft);
+        LineDetectedProtocol(Direction::kLeft);
     }
     if (millis() - time_1 >= 2000){
-      if (direction == kLeft)
-        motor_control.setSpeeds(191, 191); 
+      if (direction == Direction::kLeft)
+        motor_control.Turn(direction); 
       else
-        motor_control.setSpeeds(-191, 191);
+        motor_control.Turn(Direction::kRight);
         vTaskDelay(300);
     }
     Follow();
@@ -444,35 +431,35 @@ void CurvaAberta(){
  * antes de uma eventual aceleração.
  */ 
 void Woodpecker(){
-  if (state == kRunning){
+  if (state == RobotState::kRunning){
     for (;;){}
   }
 }
 
 /// @brief Estratégia que segue o inimigo tentando centralizá-lo para acelerar em sua direção.
 void Follow(){
-  if (state == kRunning){
+  if (state == RobotState::kRunning){
     x = WaitForSensorEvents();
     if (x & EVENT_QRE){
       if (x & EVENT_SENSOR1)
-        LineDetectedProtocol(kLeft);
+        LineDetectedProtocol(Direction::kLeft);
       else if (x & EVENT_SENSOR4)
-        LineDetectedProtocol(kRight);
+        LineDetectedProtocol(Direction::kRight);
       else
-        LineDetectedProtocol(kLeft);
+        LineDetectedProtocol(Direction::kLeft);
     }
     if (x & EVENT_SENSOR1 ||
        ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2)) ||
        ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
-      motor_control.setSpeeds(191, -191);
+      motor_control.Turn(Direction::kLeft);
     }
     else if (x & EVENT_SENSOR4 ||
             ((x & EVENT_SENSOR4) && (x & EVENT_SENSOR3)) || 
             ((x & EVENT_SENSOR4) && (x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
-      motor_control.setSpeeds(-191, 191);
+      motor_control.Turn(Direction::kRight);
     }
     else if ((x & EVENT_SENSOR2) || (x & EVENT_SENSOR3) || ((x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
-      motor_control.setSpeeds(-255, -255);
+      motor_control.Accelerate(Direction::kForward);
     }
   }
 }
@@ -480,16 +467,8 @@ void Follow(){
 /// @brief Protocolo do que deve ser feito de imediato ao detectar uma linha.
 /// @param direction A direção para a qual o robô deve ir ao haver uma detecção.
 void LineDetectedProtocol(Direction direction){
-  motor_control.setSpeeds(-255, 255);
+  motor_control.Accelerate(Direction::kBackward);
   vTaskDelay(pdMS_TO_TICKS(300));
-  if (direction == kLeft)
-    motor_control.setSpeeds(191, -191);
-  else
-    motor_control.setSpeeds(-191, 191);
+  motor_control.Turn(direction);
   vTaskDelay(pdMS_TO_TICKS(300));
-}
-
-/// @brief Para completamente os motores.
-void KillMotors(){
-  motor_control.setSpeeds(0, 0);
 }

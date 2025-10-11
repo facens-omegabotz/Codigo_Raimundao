@@ -7,13 +7,13 @@
 
 class NVSOperator{
     private:
-        char* name;
+        const char* name;
         nvs_handle_t mem_handle;
         esp_err_t err;
         bool nvs_ok;
 
     public:
-        NVSOperator(char* name);
+        NVSOperator(const char* name);
         bool getNVSOk();
         bool InitStorage();
         void CloseStorage();
@@ -21,7 +21,7 @@ class NVSOperator{
         uint32_t ReadUnsignedIntFromNVS(const char *key);
 };
 
-NVSOperator::NVSOperator(char *name){
+NVSOperator::NVSOperator(const char *name){
     this->name = name;
     this->nvs_ok = InitStorage();
 }

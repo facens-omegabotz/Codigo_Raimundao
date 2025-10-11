@@ -1,3 +1,8 @@
+/**
+ * Este headerfile define a classe MotorControl, a fim de facilitar
+ * a definição dos comportamentos do robô no código principal.
+ */
+
 #ifndef INCLUDE_MOTOR_CONTROL_H_
 #define INCLUDE_MOTOR_CONTROL_H_
 #endif
@@ -28,8 +33,11 @@ class MotorControl {
         Itamotorino itamotorino = Itamotorino(kAIn1, kAIn2, kBIn1, kBIn2, kPwmA, kPwmB);
     
     public:
-        void SetSpeeds(int32_t motor_a, int32_t motor_b);
+        MotorControl();
+        void SetSpeeds(int32_t m1, int32_t m2);
         void StopMotors();
+        void Turn(Direction d);
+        void Accelerate(Direction d);
 };
 
 MotorControl::MotorControl(){
@@ -37,10 +45,43 @@ MotorControl::MotorControl(){
                                kPwmChannelM2, kPwmFreqM2, kPwmResolutionM2);
 }
 
-void MotorControl::SetSpeeds(int32_t motor_a, int32_t motor_b){
-    this->itamotorino.setSpeeds(motor_a, motor_b);
+// Talvez seja um método desnecessário.
+void MotorControl::SetSpeeds(int32_t m1, int32_t m2){
+    this->itamotorino.setSpeeds(m1, m2);
 }
 
 void MotorControl::StopMotors(){
     this->SetSpeeds(0, 0);
+}
+
+void MotorControl::Turn(Direction d){
+    switch (d){
+        case Direction::kLeft:
+            this->SetSpeeds(191, -191);
+            break;
+
+        case Direction::kRight:
+            this->SetSpeeds(-191, 191);
+            break;
+
+        default:
+            this->Accelerate(d);
+            break;
+    }
+}
+
+void MotorControl::Accelerate(Direction d){
+    switch (d){
+        case Direction::kForward:
+            this->SetSpeeds(-255, -255);
+            break;
+        
+        case Direction::kBackward:
+            this->SetSpeeds(255, 255);
+            break;
+        
+        default:
+            this->Turn(d);
+            break;
+    }
 }
