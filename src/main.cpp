@@ -9,6 +9,14 @@
  * @author Felipe Mastromauro Corrêa
  */
 
+// Bits de eventos
+
+#define EVENT_SENSOR1 (1<<0)
+#define EVENT_SENSOR2 (1<<1)
+#define EVENT_SENSOR3 (1<<2)
+#define EVENT_SENSOR4 (1<<3)
+#define EVENT_QRE (1<<4)
+
 #include <enumerators.h>
 #include <nvs_control.hpp>
 #include <motor_control.hpp>
@@ -20,31 +28,12 @@
 #include <freertos/task.h>
 #include <freertos/FreeRTOS.h>
 #include <ir_control.hpp>
-
-// Bits de eventos
-
-#define EVENT_SENSOR1 (1<<0)
-#define EVENT_SENSOR2 (1<<1)
-#define EVENT_SENSOR3 (1<<2)
-#define EVENT_SENSOR4 (1<<3)
-#define EVENT_QRE (1<<4)
+#include <detection_control.hpp>
 
 // Configurações para sensores QTR
 
 #define NUM_SENSORS 2
 #define NUM_SAMPLES_PER_SENSOR 4
-
-// Pinos dos sensores IR
-
-constexpr uint8_t kSensor1 = 32;
-constexpr uint8_t kSensor2 = 33;
-constexpr uint8_t kSensor3 = 25;
-constexpr uint8_t kSensor4 = 27;
-
-// Pinos dos sensores de linha
-
-constexpr uint8_t kQtr1 = 36;
-constexpr uint8_t kQtr2 = 39;
 
 // Pino do receptor IR
 
@@ -58,7 +47,7 @@ constexpr uint8_t kLed2 = 19;
 // Constantes de configuração
 
 constexpr bool kDebug = false;            // Se true, habilita Serial e mensagens.
-constexpr bool kWhiteLine = true;         // Se true, envia valores quando a refletância for alta.
+// constexpr bool kWhiteLine = true;         // Se true, envia valores quando a refletância for alta.
 constexpr bool kUseNVSCalibration = true; // Se true, usa a calibração na memória não volátil.
 
 // Protótipos de função
@@ -66,17 +55,13 @@ constexpr bool kUseNVSCalibration = true; // Se true, usa a calibração na mem�
 void CoreTaskOne(void *pvParameters);
 void CoreTaskZero(void *pvParameters);
 
-void CalibrateSensors();
-void DetectEnemies();
-void DetectLine();        
+void CalibrateSensors();    
 void RunStrategy();
-void RadarEsquerdo();
-void RadarDireito();
+void Radar(Direction d);
 void CurvaAberta();
 void Woodpecker();
 void Follow();
 void LineDetectedProtocol(Direction direction);
-EventBits_t WaitForSensorEvents();
 
 // Globais
 
@@ -89,17 +74,18 @@ uint32_t sensor_values[NUM_SENSORS];
 const char* kMinKeys[NUM_SENSORS] = {"kMinQtr1", "kMinQtr2"};
 const char* kMaxKeys[NUM_SENSORS] = {"kMaxQtr1", "kMaxQtr2"};
 
+EventGroupHandle_t sensor_events;
+EventBits_t x;
+
 MotorControl motor_control = MotorControl();
 NVSControl nvs_control = NVSControl("Valores QTR");
 IRControl ir_control = IRControl(kIrPin, &state, &strat);
+DetectionControl detection_control = DetectionControl(&state, &sensor_events, &qtra, sensor_values);
 
 unsigned long time_1, time_2;
 
 TaskHandle_t core_0;
 TaskHandle_t core_1;
-
-EventGroupHandle_t sensor_events;
-EventBits_t x;
 
 void setup(){
   analogReadResolution(10); // Necessário para o bom funcionamento do QTR.
@@ -166,8 +152,8 @@ void CoreTaskOne(void *pvParameters){
 void CoreTaskZero(void *pvParameters){
   for(;;){
     ir_control.ExpectIRSignal();
-    DetectEnemies();
-    DetectLine();
+    detection_control.DetectEnemies();
+    detection_control.DetectLine();
   }
 }
 
@@ -219,26 +205,14 @@ void CalibrateSensors(){
   nvs_control.CloseStorage();
 }
 
-/// @brief Função para esperar a obtenção de eventos de todos os sensores. Possui um timeout de 30ms.
-/// @return Os bits escritos no EventGroup global.
-EventBits_t WaitForSensorEvents(){
-  return xEventGroupWaitBits(
-    sensor_events, 
-    EVENT_SENSOR1 | EVENT_SENSOR2 | EVENT_SENSOR3 | EVENT_SENSOR4 | EVENT_QRE, 
-    true, 
-    false, 
-    pdMS_TO_TICKS(30)
-  );
-}
-
 /// @brief Função para executar a estratégia selecionada pelo operador.
 void RunStrategy(){
   switch (strat){
     case Strategy::kRadarEsq:
-      RadarEsquerdo();
+      Radar(Direction::kLeft);
       break;
     case Strategy::kRadarDir:
-      RadarDireito();
+      Radar(Direction::kRight);
       break;
     case Strategy::kCurvaAberta:
       CurvaAberta();
@@ -254,79 +228,15 @@ void RunStrategy(){
   }
 }
 
-/// @brief Função que lê os valores de cada um dos sensores infravermelhos e escreve ou limpa os bits no EventGroup global.
-void DetectEnemies(){
-  if (state == RobotState::kRunning){
-    if (digitalRead(kSensor1)){
-      xEventGroupSetBits(sensor_events, EVENT_SENSOR1);
-    }
-    else{
-      xEventGroupClearBits(sensor_events, EVENT_SENSOR1);
-    }
-
-    if (digitalRead(kSensor2)){
-      xEventGroupSetBits(sensor_events, EVENT_SENSOR2);
-    }
-    else{
-      xEventGroupClearBits(sensor_events, EVENT_SENSOR2);
-    }
-
-    if (digitalRead(kSensor3)){
-      xEventGroupSetBits(sensor_events, EVENT_SENSOR3);
-    }
-    else{
-      xEventGroupClearBits(sensor_events, EVENT_SENSOR3);
-    }
-    if (digitalRead(kSensor4)){
-      xEventGroupSetBits(sensor_events, EVENT_SENSOR4);
-    }
-    else{
-      xEventGroupClearBits(sensor_events, EVENT_SENSOR4);
-    }
-  }
-}
-
 /**
- * Função para detectar a linha e escrever no EventGroup.
+ * @brief Estratégia para procurar o inimigo virando para uma direção determinada se não houver 
+ * nenhuma detecção. Ao detectar, muda a estratégia para Follow();
  */
-void DetectLine(){
+void Radar(Direction d){
   if (state == RobotState::kRunning){
-    int line_info = qtra.readLine(sensor_values, QTR_EMITTERS_ON, kWhiteLine);
-    if (line_info > 500)
-      xEventGroupSetBits(sensor_events, EVENT_QRE);
-    else
-      xEventGroupClearBits(sensor_events, EVENT_QRE);
-  }
-}
-
-/**
- * @brief Estratégia para procurar o inimigo virando para a esquerda se não houver nenhuma detecção. 
- * Ao detectar, muda a estratégia para Follow();
- */
-void RadarEsquerdo(){
-  if (state == RobotState::kRunning){
-    x = WaitForSensorEvents();
+    x = detection_control.GetSensorEvents(30);
     if (!(x & EVENT_SENSOR1) && !(x & EVENT_SENSOR2) && !(x & EVENT_SENSOR3) && !(x & EVENT_SENSOR4)){
-      motor_control.Turn(Direction::kLeft);
-    }
-    else{
-      while(state == RobotState::kRunning)
-        Follow();
-    }
-  }
-}
-
-/**
- * @brief Estratégia para procurar o inimigo virando para a direita se não houver nenhuma detecção. 
- * Ao detectar, muda a estratégia para Follow();
- */
-void RadarDireito(){
-  if (state == RobotState::kRunning){
-    if (kDebug)
-      Serial.println(x, BIN);
-    x = WaitForSensorEvents();
-    if (!(x | EVENT_SENSOR1) && !(x | EVENT_SENSOR2) && !(x | EVENT_SENSOR3) && !(x | EVENT_SENSOR4)){
-      motor_control.Turn(Direction::kRight);
+      motor_control.Turn(d);
     }
     else{
       while(state == RobotState::kRunning)
@@ -340,7 +250,7 @@ void CurvaAberta(){
   time_1 = millis();
   if (state == RobotState::kRunning){
     Direction direction;
-    x = WaitForSensorEvents();
+    x = detection_control.GetSensorEvents(30);
     if (x & EVENT_SENSOR1){
       direction = Direction::kLeft;
       motor_control.Turn(direction);
@@ -379,7 +289,7 @@ void Woodpecker(){
 /// @brief Estratégia que segue o inimigo tentando centralizá-lo para acelerar em sua direção.
 void Follow(){
   if (state == RobotState::kRunning){
-    x = WaitForSensorEvents();
+    x = detection_control.GetSensorEvents(30);
     if (x & EVENT_QRE){
       if (x & EVENT_SENSOR1)
         LineDetectedProtocol(Direction::kLeft);

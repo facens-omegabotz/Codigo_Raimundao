@@ -7,10 +7,10 @@
 
 class NVSControl{
   private:
-  const char* name;
-  nvs_handle_t mem_handle;
-  esp_err_t err;
-  bool nvs_ok;
+    const char* name;
+    nvs_handle_t mem_handle;
+    esp_err_t err;
+    bool nvs_ok;
 
   public:
     NVSControl(const char* name);
