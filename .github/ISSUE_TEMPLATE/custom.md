@@ -7,8 +7,8 @@ assignees: ''
 
 ---
 
-# Issue
+# ⚠️ Issue
 
-## Descrição
+## 📝 Descrição
 
-## Checklist de tarefas
+## ✅ Checklist de tarefas
