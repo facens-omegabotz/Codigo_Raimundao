@@ -9,19 +9,17 @@
  * @author Felipe Mastromauro Corrêa
  */
 
-#define DECODE_SONY // Limita biblioteca de IR ao protocolo Sony.
-
 #include <enumerators.h>
-#include <nvs_operator.hpp>
+#include <nvs_control.hpp>
 #include <motor_control.hpp>
 
 #include <esp_ipc.h>
 #include <Arduino.h>
 #include <QTRSensors.h>
-#include <IRremote.hpp>
 #include <Itamotorino.h>
 #include <freertos/task.h>
 #include <freertos/FreeRTOS.h>
+#include <ir_control.hpp>
 
 // Bits de eventos
 
@@ -68,7 +66,6 @@ constexpr bool kUseNVSCalibration = true; // Se true, usa a calibração na mem�
 void CoreTaskOne(void *pvParameters);
 void CoreTaskZero(void *pvParameters);
 
-void ReceiveIrSignal();
 void CalibrateSensors();
 void DetectEnemies();
 void DetectLine();        
@@ -79,7 +76,6 @@ void CurvaAberta();
 void Woodpecker();
 void Follow();
 void LineDetectedProtocol(Direction direction);
-void KillMotors();
 EventBits_t WaitForSensorEvents();
 
 // Globais
@@ -94,7 +90,8 @@ const char* kMinKeys[NUM_SENSORS] = {"kMinQtr1", "kMinQtr2"};
 const char* kMaxKeys[NUM_SENSORS] = {"kMaxQtr1", "kMaxQtr2"};
 
 MotorControl motor_control = MotorControl();
-NVSOperator nvs_operator = NVSOperator("Valores QTR");
+NVSControl nvs_control = NVSControl("Valores QTR");
+IRControl ir_control = IRControl(kIrPin, &state, &strat);
 
 unsigned long time_1, time_2;
 
@@ -118,8 +115,6 @@ void setup(){
     Serial.print("Starting strat: ");
     Serial.println(static_cast<uint16_t>(strat));
   }
-  // motor_control.setupADC(kPwmChannelM1, kPwmFreqM1, kPwmResolutionM1, 
-  //                        kPwmChannelM2, kPwmFreqM2, kPwmResolutionM2);
   sensor_events = xEventGroupCreate();
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(kSensor1, INPUT);
@@ -128,8 +123,6 @@ void setup(){
   pinMode(kSensor4, INPUT);
   pinMode(kLed1, OUTPUT);
   pinMode(kLed2, OUTPUT);
-  IrReceiver.begin(kIrPin, true); // LED_BUILTIN como feedback de resposta.
-  IrReceiver.enableIRIn();        // Linha possivelmente desnecessária.
   CalibrateSensors();
 
   xTaskCreatePinnedToCore(
@@ -162,7 +155,7 @@ void CoreTaskOne(void *pvParameters){
     if (state != RobotState::kStop)
       RunStrategy();
     else{
-      KillMotors();
+      motor_control.StopMotors();
       vTaskDelete(core_1);
     }
   }
@@ -172,75 +165,22 @@ void CoreTaskOne(void *pvParameters){
 /// @param pvParameters Ponteiro para void que pode conter dados importantes à tarefa. Inutilizado neste caso.
 void CoreTaskZero(void *pvParameters){
   for(;;){
-    if (IrReceiver.decode())
-      ReceiveIrSignal();
+    ir_control.ExpectIRSignal();
     DetectEnemies();
     DetectLine();
-  }
-}
-
-/// @brief Função para alterar os valores importantes ao robô de acordo com o sinal recebido via infravermelho.
-void ReceiveIrSignal(){
-  if (kDebug){
-    Serial.println("Entered Receive Signal");
-    Serial.println(IrReceiver.decodedIRData.command);
-  }
-  IrReceiver.resume();
-  if (state != RobotState::kStop && state != RobotState::kRunning 
-      && IrReceiver.decodedIRData.command == static_cast<uint16_t>(RobotState::kReady))
-    state = RobotState::kReady;
-
-  if (state == RobotState::kReady){
-    switch(IrReceiver.decodedIRData.command){
-      case static_cast<uint16_t>(RobotState::kRunning):
-        state = RobotState::kRunning;
-        break;
-
-      case static_cast<uint16_t>(Strategy::kRadarEsq):
-        strat = Strategy::kRadarEsq;
-        break;
-
-      case static_cast<uint16_t>(Strategy::kRadarDir):
-        strat = Strategy::kRadarDir;
-        break;
-
-      case static_cast<uint16_t>(Strategy::kCurvaAberta):
-        strat = Strategy::kCurvaAberta;
-        break;
-
-      case static_cast<uint16_t>(Strategy::kFollowOnly):
-        strat = Strategy::kFollowOnly;
-        break;
-
-      case static_cast<uint16_t>(Strategy::kWoodPecker):
-        strat = Strategy::kWoodPecker;
-      default:
-        break;
-    }
-  }
-  if (IrReceiver.decodedIRData.command == static_cast<uint16_t>(RobotState::kStop))
-    state = RobotState::kStop;
-  
-  if (kDebug){
-    Serial.print("Received the command: ");
-    Serial.println(IrReceiver.decodedIRData.command);
-    Serial.print("State after command: ");
-    Serial.println(static_cast<uint16_t>(state));
-    Serial.print("Strategy after command: ");
-    Serial.println(static_cast<uint16_t>(strat));
   }
 }
 
 /// @brief Função para calibrar os sensores QTR. Obtém a calibração da memória não volátil ou calibra os sensores.
 void CalibrateSensors(){
   qtra.calibrate();
-  if (kUseNVSCalibration && nvs_operator.getNVSOk()){
+  if (kUseNVSCalibration && nvs_control.getNVSOk()){
     for(int i = 0; i < NUM_SENSORS; i++){
-      if (nvs_operator.ReadUnsignedIntFromNVS(kMinKeys[i]) != -1){
-        qtra.calibratedMinimumOn[i] = nvs_operator.ReadUnsignedIntFromNVS(kMinKeys[i]);
+      if (nvs_control.ReadUnsignedIntFromNVS(kMinKeys[i]) != -1){
+        qtra.calibratedMinimumOn[i] = nvs_control.ReadUnsignedIntFromNVS(kMinKeys[i]);
       }
-      if (nvs_operator.ReadUnsignedIntFromNVS(kMaxKeys[i]) != -1){
-        qtra.calibratedMaximumOn[i] = nvs_operator.ReadUnsignedIntFromNVS(kMaxKeys[i]);
+      if (nvs_control.ReadUnsignedIntFromNVS(kMaxKeys[i]) != -1){
+        qtra.calibratedMaximumOn[i] = nvs_control.ReadUnsignedIntFromNVS(kMaxKeys[i]);
       }
       if (kDebug){
         Serial.println("== NVS read ==");
@@ -260,8 +200,8 @@ void CalibrateSensors(){
     }
     digitalWrite(kLed2, LOW);
     for(int i = 0; i < NUM_SENSORS; i++){
-      nvs_operator.WriteUnsignedIntToNVS(kMinKeys[i], qtra.calibratedMinimumOn[i]);
-      nvs_operator.WriteUnsignedIntToNVS(kMaxKeys[i], qtra.calibratedMaximumOn[i]);
+      nvs_control.WriteUnsignedIntToNVS(kMinKeys[i], qtra.calibratedMinimumOn[i]);
+      nvs_control.WriteUnsignedIntToNVS(kMaxKeys[i], qtra.calibratedMaximumOn[i]);
       if (kDebug){
         Serial.println("");
         Serial.println(qtra.calibratedMinimumOn[i]);
@@ -269,14 +209,14 @@ void CalibrateSensors(){
         Serial.println("== NVS written ==");
         Serial.print(kMinKeys[i]);
         Serial.print(" = ");
-        Serial.println(nvs_operator.ReadUnsignedIntFromNVS(kMinKeys[i]));
+        Serial.println(nvs_control.ReadUnsignedIntFromNVS(kMinKeys[i]));
         Serial.print(kMaxKeys[i]);
         Serial.print(" = ");
-        Serial.println(nvs_operator.ReadUnsignedIntFromNVS(kMaxKeys[i]));
+        Serial.println(nvs_control.ReadUnsignedIntFromNVS(kMaxKeys[i]));
       }
     }
   }
-  nvs_operator.CloseStorage();
+  nvs_control.CloseStorage();
 }
 
 /// @brief Função para esperar a obtenção de eventos de todos os sensores. Possui um timeout de 30ms.
