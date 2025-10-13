@@ -15,7 +15,8 @@ enum class RobotState {
 enum class Strategy {
   kRadarEsq = 0x3, // Comando HEX recebido pelo número 4.
   kRadarDir,
-  kCurvaAberta,
+  kCurvaAbertaEsq,
+  kCurvaAbertaDir,
   kFollowOnly,
   kWoodPecker
 };

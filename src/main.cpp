@@ -58,7 +58,7 @@ void CoreTaskZero(void *pvParameters);
 void CalibrateSensors();    
 void RunStrategy();
 void Radar(Direction d);
-void CurvaAberta();
+void CurvaAberta(Direction d);
 void Woodpecker();
 void Follow();
 void LineDetectedProtocol(Direction direction);
@@ -211,18 +211,27 @@ void RunStrategy(){
     case Strategy::kRadarEsq:
       Radar(Direction::kLeft);
       break;
+
     case Strategy::kRadarDir:
       Radar(Direction::kRight);
       break;
-    case Strategy::kCurvaAberta:
-      CurvaAberta();
+
+    case Strategy::kCurvaAbertaEsq:
+      CurvaAberta(Direction::kLeft);
       break;
+
+    case Strategy::kCurvaAbertaDir:
+      CurvaAberta(Direction::kRight);
+      break;
+
     case Strategy::kFollowOnly:
       Follow();
       break;
+
     case Strategy::kWoodPecker:
       Woodpecker();
       break;
+
     default:
       break;
   }
@@ -246,32 +255,21 @@ void Radar(Direction d){
 }
 
 /// @brief Estratégia que faz uma curva aberta antes de entrar em Follow();
-void CurvaAberta(){
-  time_1 = millis();
+void CurvaAberta(Direction d){
+  Direction opposite_d = d == Direction::kRight ? Direction::kLeft : Direction::kRight;
   if (state == RobotState::kRunning){
-    Direction direction;
-    x = detection_control.GetSensorEvents(30);
-    if (x & EVENT_SENSOR1){
-      direction = Direction::kLeft;
-      motor_control.Turn(direction);
+    time_1 = millis();
+    while(millis() - time_1 <= 400)
+      motor_control.Turn(d);
+    motor_control.Accelerate(Direction::kForward);
+    time_1 = millis();
+    while(millis() - time_1 <= 1000){
+      x = detection_control.GetSensorEvents(30);
+      if (x & EVENT_QRE)
+        LineDetectedProtocol(opposite_d);
     }
-    else if (x & EVENT_SENSOR4){
-      direction = Direction::kRight;
-      motor_control.Turn(direction);
-    }
-    if (x & EVENT_QRE){
-      if (direction == Direction::kLeft)
-        LineDetectedProtocol(Direction::kRight);
-      else
-        LineDetectedProtocol(Direction::kLeft);
-    }
-    if (millis() - time_1 >= 2000){
-      if (direction == Direction::kLeft)
-        motor_control.Turn(direction); 
-      else
-        motor_control.Turn(Direction::kRight);
-        vTaskDelay(300);
-    }
+    motor_control.Turn(opposite_d);
+    vTaskDelay(400);
     Follow();
   }
 }
