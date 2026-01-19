@@ -1,21 +1,22 @@
 #define DECODE_SONY // Limita biblioteca de IR ao protocolo Sony.
 
+#include <map>
 #include <Arduino.h>
 #include <globals.h>
-#include <IRremote.hpp>
-#include <enumerators.hpp>
-#include <Itamotorino.h>
-#include <nvs_handler.hpp>
 #include <QTRSensors.h>
-#include <esp_log.h>
+#include <IRremote.hpp>
+#include <Itamotorino.h>
+#include <enumerators.hpp>
+#include <nvs_handler.hpp>
 #include <detection_functions.hpp>
-#include <map>
+
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
 // protótipos de função
 
 void CalibrateSensors(const bool use_nvs_calibration);
+void BlinkNTimes(uint8_t n);
 void DecodeIrSignal();
 
 void DetectLine();
@@ -28,9 +29,10 @@ void Woodpecker();
 void Follow();
 void LineDetectedProtocol(Direction direction);
 void KillMotors();
+void PulseMotors(uint8_t qty);
 
-void CoreTaskOne(void *pvParameters);
-void CoreTaskZero(void *pvParameters);
+void MovementTask(void *pvParameters);
+void SensingTask(void *pvParameters);
 
 // globais e constantes
 
@@ -56,8 +58,10 @@ const std::map<uint16_t, Strategy> strats = {
   {static_cast<uint16_t>(Strategy::kFollowOnly), Strategy::kFollowOnly},
   {static_cast<uint16_t>(Strategy::kRadarDir), Strategy::kRadarDir},
   {static_cast<uint16_t>(Strategy::kRadarEsq), Strategy::kRadarEsq},
+  {static_cast<uint16_t>(Strategy::kWoodPecker), Strategy::kWoodPecker},
 };
 
+/* Tem repetição de dados aqui. Não tem um problema maior por ser ESP32 devkit, mas não deveria estar aqui. */
 const std::map<int, int> sensor_pins_and_bits = {
   {SENSOR1, EVENT_SENSOR1},
   {SENSOR2, EVENT_SENSOR2},
@@ -70,56 +74,38 @@ const int output_pins[3] = {LED_BUILTIN, LED1, LED2};
 
 Itamotorino itamotorino = Itamotorino(AIN1, AIN2, BIN1, BIN2, PWMA, PWMB);
 
-TaskHandle_t core_0;
-TaskHandle_t core_1;
+TaskHandle_t movement_task;
+TaskHandle_t sensing_task;
 
 EventGroupHandle_t sensor_events;
 EventBits_t x;
 
-NVSHandler nvs_handler("QTR Min Max Values");
-
-const char* const TAG = "Main program";
+NVSHandler nvs_handler("QTR Values");
 
 void setup(){
   if (DEBUG_MODE){
     Serial.begin(115200);
     while (!Serial){;}
-    ESP_LOGI(TAG, "Initialized with state: %d and strat: %d\n", state, strat);
   }
+  nvs_handler.StartStorage();
   analogReadResolution(10);
   disableCore0WDT();
   disableCore1WDT();
   itamotorino.setupADC(PWM_CH1, PWM_FREQ, PWM_RES, PWM_CH2, PWM_FREQ, PWM_RES);
   sensor_events = xEventGroupCreate();
 
-  for (auto& pin : input_pins)
-    pinMode(pin, INPUT);
-  for (auto& pin : output_pins)
-    pinMode(pin, OUTPUT);
+  for (auto& pin : input_pins) pinMode(pin, INPUT);
+  for (auto& pin : output_pins) pinMode(pin, OUTPUT);
   
-  IrReceiver.begin(IR, true, LED_BUILTIN);  // LED_BUILTIN como feedback de resposta.
-  IrReceiver.enableIRIn();                  // Linha possivelmente desnecessária.
+  IrReceiver.begin(IR, true, LED_BUILTIN);
+  IrReceiver.enableIRIn();
 
   CalibrateSensors(false); // mudar para true quando já calibrado
-  xTaskCreatePinnedToCore(
-    CoreTaskOne,
-    "CoreTaskOne",
-    10000,
-    NULL,
-    1,
-    &core_1,
-    1
-  );
+  xTaskCreatePinnedToCore(MovementTask, "MovementTask", STACK_DEPTH,
+                          NULL, TASK_PRIORITY, &movement_task, 1);
 
-  xTaskCreatePinnedToCore(
-    CoreTaskZero,
-    "CoreTaskZero",
-    10000,
-    NULL,
-    1,
-    &core_0,
-    0
-  );
+  xTaskCreatePinnedToCore(SensingTask, "SensingTask", STACK_DEPTH,
+                          NULL, TASK_PRIORITY, &sensing_task, 0);
 }
 
 void loop(){}
@@ -129,34 +115,43 @@ void CalibrateSensors(const bool use_nvs_calibration){
   uint32_t min_value, max_value;
   if (nvs_handler.StartStorage()){
     if (use_nvs_calibration){
+    if (DEBUG_MODE) Serial.println("READ");
       for(int i = 0; i < NUM_SENSORS; i++){
         min_value = nvs_handler.ReadUnsignedIntFromNVS(kMinKeys[i]);
         max_value = nvs_handler.ReadUnsignedIntFromNVS(kMaxKeys[i]);
-        if(min_value){
+        if(min_value != -1){
           qtra.calibratedMinimumOn[i] = min_value;
         }
-        if(max_value){
+        if(max_value != -1){
           qtra.calibratedMinimumOn[i] = max_value;
         }
 
         if (DEBUG_MODE){
-          ESP_LOGI(TAG, "Read %s = %d, %s = %d from NVS memory\n", kMinKeys[i], min_value, kMaxKeys[i], max_value);
+          Serial.print(kMinKeys[i]);
+          Serial.println(min_value);
+          Serial.print(kMaxKeys[i]);
+          Serial.println(max_value);
         }
       }
     }
     else{
+      if (DEBUG_MODE) Serial.println("WRITE");
       digitalWrite(LED1, HIGH);
+      digitalWrite(LED2, HIGH);
       for(int i = 0; i < 1200; i++){
         qtra.calibrate();
       }
+      digitalWrite(LED1, LOW);
       digitalWrite(LED2, LOW);
       if (nvs_handler.StartStorage()){
         for(int i = 0; i < NUM_SENSORS; i++){
-          // talvez nem precise retornar bool e possa só ser uma checagem de nvs_ok
           nvs_handler.WriteUnsignedIntToNVS(kMinKeys[i], qtra.calibratedMinimumOn[i]);
           nvs_handler.WriteUnsignedIntToNVS(kMaxKeys[i], qtra.calibratedMaximumOn[i]);
           if (DEBUG_MODE){
-            ESP_LOGI(TAG, "Wrote %s = %d, %s = %d from NVS memory\n", kMinKeys[i], qtra.calibratedMinimumOn[i], kMaxKeys[i], qtra.calibratedMaximumOn[i]);
+            Serial.print(kMinKeys[i] + ' ');
+            Serial.println(qtra.calibratedMinimumOn[i]);
+            Serial.print(kMaxKeys[i] + ' ');
+            Serial.println(qtra.calibratedMaximumOn[i]);
           }
         }
       }
@@ -164,14 +159,25 @@ void CalibrateSensors(const bool use_nvs_calibration){
     nvs_handler.CloseStorage();
   }
   else{
-    // blink_error();
+    if (DEBUG_MODE) Serial.println("Error with calibration");
+    BlinkNTimes(10);
+  }
+}
+
+void BlinkNTimes(uint8_t n){
+  while (n > 0){
+    --n;
+    digitalWrite(LED1, HIGH);
+    digitalWrite(LED2, HIGH);
+    vTaskDelay(200);
+    digitalWrite(LED1, LOW);
+    digitalWrite(LED2, LOW);
+    vTaskDelay(200);
   }
 }
 
 void DecodeIrSignal(){
   IrReceiver.resume();
-  if (DEBUG_MODE)
-    ESP_LOGI(TAG, "IR module received command %d\n", IrReceiver.decodedIRData.command);
 
   if (states.find(IrReceiver.decodedIRData.command) != states.end()){
     switch (states.find(IrReceiver.decodedIRData.command)->second){
@@ -192,13 +198,18 @@ void DecodeIrSignal(){
     }
   }
 
-  if (DEBUG_MODE)
-    ESP_LOGI(TAG, "Current state: %d - Currentn strat: %d\n", static_cast<uint16_t>(state), static_cast<uint16_t>(strat));
+  if (DEBUG_MODE){
+    Serial.print("Current state: ");
+    Serial.println(static_cast<uint16_t>(state));
+    Serial.print("Current strat: ");
+    Serial.println(static_cast<uint16_t>(strat));
+  }
 }
 
 void DetectLine(){
   if (state == RobotState::kRunning){
     int line_info = qtra.readLine(sensor_values, QTR_EMITTERS_ON, true); // este valor é entre zero ou mil
+    if (DEBUG_MODE) Serial.println(line_info);
     if (line_info <= 500){
       xEventGroupSetBits(sensor_events, EVENT_QRE_LEFT);
       xEventGroupClearBits(sensor_events, EVENT_QRE_RIGHT);
@@ -210,7 +221,7 @@ void DetectLine(){
   }
 }
 
-void RunStrategy(){
+void RunStrategy(){ // isso podia ser um map<Strategy, void (*function)()> ?
   switch (strat){
     case Strategy::kRadarEsq:
       RadarEsquerdo();
@@ -227,7 +238,7 @@ void RunStrategy(){
     case Strategy::kWoodPecker:
       Woodpecker();
       break;
-    default:
+    default: // Afinal, default é um estado "impossível" e desnecessário para o nosso caso, não?
       break;
   }
 }
@@ -290,13 +301,16 @@ void CurvaAberta(){
 
 void Woodpecker(){
   if (state == RobotState::kRunning){
-    for (;;){}
+    PulseMotors(WOODPECKER_PULSES);
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    while(state == RobotState::kRunning) Follow();
   }
 }
 
 void Follow(){
   if (state == RobotState::kRunning){
     x = WaitForSensorEvents(sensor_events);
+    // TODO: rever essa bomba
     if (x & EVENT_QRE_LEFT || x & EVENT_QRE_RIGHT){
       if (x & EVENT_SENSOR1)
         LineDetectedProtocol(Direction::kLeft);
@@ -305,6 +319,7 @@ void Follow(){
       else
         LineDetectedProtocol(Direction::kLeft);
     }
+
     if (x & EVENT_SENSOR1 ||
        ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2)) ||
        ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
@@ -335,18 +350,28 @@ void KillMotors(){
   itamotorino.setSpeeds(0, 0);
 }
 
-void CoreTaskOne(void *pvParameters){
+void PulseMotors(uint8_t qty){
+  while (qty){
+    itamotorino.setSpeeds(-255, 255);
+    vTaskDelay(pdMS_TO_TICKS(100));
+    KillMotors();
+    vTaskDelay(pdMS_TO_TICKS(1000));
+    --qty;
+  }
+}
+
+void MovementTask(void *pvParameters){
   for(;;){
     if (state != RobotState::kStop)
       RunStrategy();
     else{
       KillMotors();
-      vTaskDelete(core_1);
+      vTaskDelete(movement_task);
     }
   }
 }
 
-void CoreTaskZero(void *pvParameters){
+void SensingTask(void *pvParameters){
   for(;;){
     if (IrReceiver.decode())
       DecodeIrSignal();

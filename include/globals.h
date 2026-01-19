@@ -1,7 +1,8 @@
 #ifndef HEADERS_GLOBALS_H_
 #define HEADERS_GLOBALS_H_
 
-// Sensor event bits
+#define STACK_DEPTH 10000
+#define TASK_PRIORITY 1
 
 #define EVENT_SENSOR1 (1<<0)
 #define EVENT_SENSOR2 (1<<1)
@@ -37,6 +38,8 @@
 #define PWM_RES 8
 #define PWM_CH1 1
 #define PWM_CH2 2
+
+#define WOODPECKER_PULSES 5
 
 #define DEBUG_MODE 1 // undefine for no debug
 
