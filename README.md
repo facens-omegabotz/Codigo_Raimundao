@@ -38,7 +38,7 @@ A mensagem deve estar no imperativo, e os arquivos devem estar de acordo com a o
 
 ## 🤖 O robô
 
-O robô desenvolvido a partir dos projetos da placa e do código é o Raimundão. É o meu primeiro robô de sumô autônomo, e seu projeto marca o retorno da equipe à categoria. Esse projeto não seria possível sem o auxílio dos membros da categoria de sumô e, em especial, sem o auxílio dos líderes das categorias de eletrônica e seguidor de linha: Rafael e Guilherme. 
+O robô desenvolvido a partir dos projetos da placa e do código é o Raimundão. É o meu primeiro robô de sumô autônomo, e seu projeto marca o retorno da equipe à categoria. Esse projeto não seria possível sem o auxílio dos membros da categoria de sumô, em especial, Grazi Rolle; e também os líderes das categorias de eletrônica e seguidor de linha: Rafael e Guilherme. 
 
 ![GIF de luta entre Raimundão e Magic Boo, da equipe DragonBotz](./img/vs_dragonbotz.gif)
 > Um round contra o Magic Boo, da DragonBotz. Foi por pouco, mas levamos.
