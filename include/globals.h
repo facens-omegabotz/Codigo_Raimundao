@@ -41,6 +41,6 @@
 
 #define WOODPECKER_PULSES 5
 
-#define DEBUG_MODE 1 // undefine for no debug
+#define DEBUG_MODE 0 // undefine for no debug
 
 #endif

@@ -100,7 +100,7 @@ void setup(){
   IrReceiver.begin(IR, true, LED_BUILTIN);
   IrReceiver.enableIRIn();
 
-  CalibrateSensors(false); // mudar para true quando já calibrado
+  CalibrateSensors(true); // mudar para true quando já calibrado
   xTaskCreatePinnedToCore(MovementTask, "MovementTask", STACK_DEPTH,
                           NULL, TASK_PRIORITY, &movement_task, 1);
 
@@ -310,15 +310,6 @@ void Woodpecker(){
 void Follow(){
   if (state == RobotState::kRunning){
     x = WaitForSensorEvents(sensor_events);
-    // TODO: rever essa bomba
-    if (x & EVENT_QRE_LEFT || x & EVENT_QRE_RIGHT){
-      if (x & EVENT_SENSOR1)
-        LineDetectedProtocol(Direction::kLeft);
-      else if (x & EVENT_SENSOR4)
-        LineDetectedProtocol(Direction::kRight);
-      else
-        LineDetectedProtocol(Direction::kLeft);
-    }
 
     if (x & EVENT_SENSOR1 ||
        ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2)) ||
