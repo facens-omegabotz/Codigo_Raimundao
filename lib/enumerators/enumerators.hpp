@@ -1,7 +1,7 @@
 #ifndef HEADERS_ENUMERATORS_H_
 #define HEADERS_ENUMERATORS_H_
 
-enum class RobotState {
+enum class FightState {
   kReady = 0x0, // Comando HEX recebido pelo número 1.
   kRunning,
   kStop
@@ -17,7 +17,16 @@ enum class Strategy {
 
 enum class Direction {
   kLeft,
-  kRight
+  kRight,
+  kForward,
+  kBackward
+};
+
+enum class IrDetectionState {
+  kFront,
+  kLeft,
+  kRight,
+  kNone
 };
 
 #endif

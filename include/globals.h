@@ -4,35 +4,43 @@
 #define STACK_DEPTH 10000
 #define TASK_PRIORITY 1
 
-#define EVENT_SENSOR1 (1<<0)
-#define EVENT_SENSOR2 (1<<1)
-#define EVENT_SENSOR3 (1<<2)
-#define EVENT_SENSOR4 (1<<3)
+#define EVENT_BIT_SENSOR_1 (1<<0)
+#define EVENT_BIT_SENSOR_2 (1<<1)
+#define EVENT_BIT_SENSOR_3 (1<<2)
+#define EVENT_BIT_SENSOR_4 (1<<3)
+
+#define ALL_IR_EVENT_BITS     (EVENT_BIT_SENSOR_1 | EVENT_BIT_SENSOR_2 | EVENT_BIT_SENSOR_3 | EVENT_BIT_SENSOR_4)
+#define NO_LETMOST_BIT        (EVENT_BIT_SENSOR_2 | EVENT_BIT_SENSOR_3 | EVENT_BIT_SENSOR_4)
+#define RIGHT_SENSOR_BITS     (EVENT_BIT_SENSOR_3 | EVENT_BIT_SENSOR_4)
+#define LEFT_SENSOR_BITS      (EVENT_BIT_SENSOR_1 | EVENT_BIT_SENSOR_2)
+#define NO_RIGHTMOST_BIT      (EVENT_BIT_SENSOR_1 | EVENT_BIT_SENSOR_2 | EVENT_BIT_SENSOR_3)
+#define FORWARD_BITS          (EVENT_BIT_SENSOR_2 | EVENT_BIT_SENSOR_3)
+
 #define EVENT_QRE_LEFT (1<<4)
 #define EVENT_QRE_RIGHT (1<<5)
 
-#define SENSOR1 32
-#define SENSOR2 33
-#define SENSOR3 25
-#define SENSOR4 27
+#define IR_SENSOR_1 32u
+#define IR_SENSOR_2 33u
+#define IR_SENSOR_3 25u
+#define IR_SENSOR_4 27u
 
-#define NUM_SENSORS 2
-#define NUM_SAMPLES_PER_SENSOR 4
+#define NUM_SENSORS 2u
+#define NUM_SAMPLES_PER_SENSOR 4u
 
-#define QTR1 36
-#define QTR2 39
+#define QTR1 36u
+#define QTR2 39u
 
-#define IR 17
+#define IR 17u
 
-#define LED1 18
-#define LED2 19
+#define LED1 18u
+#define LED2 19u
 
-#define PWMA 4
-#define PWMB 21
-#define AIN1 16
-#define AIN2 22
-#define BIN1 23
-#define BIN2 5
+#define PWMA 4u
+#define PWMB 21u
+#define AIN1 16u
+#define AIN2 22u
+#define BIN1 23u
+#define BIN2 5u
 
 #define PWM_FREQ 1000
 #define PWM_RES 8

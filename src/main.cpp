@@ -38,7 +38,7 @@ void SensingTask(void *pvParameters);
 
 unsigned long time_1, time_2;
 
-RobotState state = RobotState::kReady;
+FightState state = FightState::kReady;
 Strategy strat = Strategy::kRadarEsq;
 
 QTRSensorsAnalog qtra((unsigned char[]){QTR1, QTR2}, NUM_SENSORS, NUM_SAMPLES_PER_SENSOR);
@@ -47,10 +47,10 @@ uint32_t sensor_values[NUM_SENSORS];
 const char* kMinKeys[NUM_SENSORS] = {"kMinQtr1", "kMinQtr2"};
 const char* kMaxKeys[NUM_SENSORS] = {"kMaxQtr1", "kMaxQtr2"};
 
-const std::map<uint16_t, RobotState> states = {
-  {static_cast<uint16_t>(RobotState::kReady), RobotState::kReady}, 
-  {static_cast<uint16_t>(RobotState::kRunning), RobotState::kRunning},
-  {static_cast<uint16_t>(RobotState::kStop), RobotState::kStop},
+const std::map<uint16_t, FightState> states = {
+  {static_cast<uint16_t>(FightState::kReady), FightState::kReady}, 
+  {static_cast<uint16_t>(FightState::kRunning), FightState::kRunning},
+  {static_cast<uint16_t>(FightState::kStop), FightState::kStop},
 };
 
 const std::map<uint16_t, Strategy> strats = {
@@ -63,13 +63,13 @@ const std::map<uint16_t, Strategy> strats = {
 
 /* Tem repetição de dados aqui. Não tem um problema maior por ser ESP32 devkit, mas não deveria estar aqui. */
 const std::map<int, int> sensor_pins_and_bits = {
-  {SENSOR1, EVENT_SENSOR1},
-  {SENSOR2, EVENT_SENSOR2},
-  {SENSOR3, EVENT_SENSOR3},
-  {SENSOR4, EVENT_SENSOR4},
+  {IR_SENSOR_1, EVENT_BIT_SENSOR_1},
+  {IR_SENSOR_2, EVENT_BIT_SENSOR_2},
+  {IR_SENSOR_3, EVENT_BIT_SENSOR_3},
+  {IR_SENSOR_4, EVENT_BIT_SENSOR_4},
 };
 
-const int input_pins[4] = {SENSOR1, SENSOR2, SENSOR3, SENSOR4};
+const int input_pins[4] = {IR_SENSOR_1, IR_SENSOR_2, IR_SENSOR_3, IR_SENSOR_4};
 const int output_pins[3] = {LED_BUILTIN, LED1, LED2};
 
 Itamotorino itamotorino = Itamotorino(AIN1, AIN2, BIN1, BIN2, PWMA, PWMB);
@@ -181,11 +181,11 @@ void DecodeIrSignal(){
 
   if (states.find(IrReceiver.decodedIRData.command) != states.end()){
     switch (states.find(IrReceiver.decodedIRData.command)->second){
-      case RobotState::kStop:
-        state = RobotState::kStop;
+      case FightState::kStop:
+        state = FightState::kStop;
         break;
       default:
-        if (state == RobotState::kReady){
+        if (state == FightState::kReady){
           state = states.find(IrReceiver.decodedIRData.command)->second;
         }
         break;
@@ -193,7 +193,7 @@ void DecodeIrSignal(){
   }
 
   if (strats.find(IrReceiver.decodedIRData.command) != strats.end()){
-    if (state == RobotState::kReady){
+    if (state == FightState::kReady){
       strat = strats.find(IrReceiver.decodedIRData.command)->second;
     }
   }
@@ -207,7 +207,7 @@ void DecodeIrSignal(){
 }
 
 void DetectLine(){
-  if (state == RobotState::kRunning){
+  if (state == FightState::kRunning){
     int line_info = qtra.readLine(sensor_values, QTR_EMITTERS_ON, true); // este valor é entre zero ou mil
     if (DEBUG_MODE) Serial.println(line_info);
     if (line_info <= 500){
@@ -244,26 +244,26 @@ void RunStrategy(){ // isso podia ser um map<Strategy, void (*function)()> ?
 }
 
 void RadarEsquerdo(){
-  if (state == RobotState::kRunning){
+  if (state == FightState::kRunning){
     x = WaitForSensorEvents(sensor_events);
-    if (!(x & EVENT_SENSOR1) && !(x & EVENT_SENSOR2) && !(x & EVENT_SENSOR3) && !(x & EVENT_SENSOR4)){
+    if (!(x & EVENT_BIT_SENSOR_1) && !(x & EVENT_BIT_SENSOR_2) && !(x & EVENT_BIT_SENSOR_3) && !(x & EVENT_BIT_SENSOR_4)){
       itamotorino.setSpeeds(191, -191);
     }
     else{
-      while(state == RobotState::kRunning)
+      while(state == FightState::kRunning)
         Follow();
     }
   }
 }
 
 void RadarDireito(){
-  if (state == RobotState::kRunning){
+  if (state == FightState::kRunning){
     x = WaitForSensorEvents(sensor_events);
-    if (!(x | EVENT_SENSOR1) && !(x | EVENT_SENSOR2) && !(x | EVENT_SENSOR3) && !(x | EVENT_SENSOR4)){
+    if (!(x | EVENT_BIT_SENSOR_1) && !(x | EVENT_BIT_SENSOR_2) && !(x | EVENT_BIT_SENSOR_3) && !(x | EVENT_BIT_SENSOR_4)){
       itamotorino.setSpeeds(-191, 191);
     }
     else{
-      while(state == RobotState::kRunning)
+      while(state == FightState::kRunning)
         Follow();
     }
   }
@@ -271,14 +271,14 @@ void RadarDireito(){
 
 void CurvaAberta(){
   time_1 = millis();
-  if (state == RobotState::kRunning){
+  if (state == FightState::kRunning){
     Direction direction;
     x = WaitForSensorEvents(sensor_events);
-    if (x & EVENT_SENSOR1){
+    if (x & EVENT_BIT_SENSOR_1){
       direction = Direction::kLeft;
       itamotorino.setSpeeds(-191, 191);
     }
-    else if (x & EVENT_SENSOR4){
+    else if (x & EVENT_BIT_SENSOR_4){
       direction = Direction::kRight;
       itamotorino.setSpeeds(191, 191);
     }
@@ -300,28 +300,28 @@ void CurvaAberta(){
 }
 
 void Woodpecker(){
-  if (state == RobotState::kRunning){
+  if (state == FightState::kRunning){
     PulseMotors(WOODPECKER_PULSES);
     vTaskDelay(pdMS_TO_TICKS(1000));
-    while(state == RobotState::kRunning) Follow();
+    while(state == FightState::kRunning) Follow();
   }
 }
 
 void Follow(){
-  if (state == RobotState::kRunning){
+  if (state == FightState::kRunning){
     x = WaitForSensorEvents(sensor_events);
 
-    if (x & EVENT_SENSOR1 ||
-       ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2)) ||
-       ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
+    if (x & EVENT_BIT_SENSOR_1 ||
+       ((x & EVENT_BIT_SENSOR_1) && (x & EVENT_BIT_SENSOR_2)) ||
+       ((x & EVENT_BIT_SENSOR_1) && (x & EVENT_BIT_SENSOR_2) && (x & EVENT_BIT_SENSOR_3))){
       itamotorino.setSpeeds(191, -191);
     }
-    else if (x & EVENT_SENSOR4 ||
-            ((x & EVENT_SENSOR4) && (x & EVENT_SENSOR3)) || 
-            ((x & EVENT_SENSOR4) && (x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
+    else if (x & EVENT_BIT_SENSOR_4 ||
+            ((x & EVENT_BIT_SENSOR_4) && (x & EVENT_BIT_SENSOR_3)) || 
+            ((x & EVENT_BIT_SENSOR_4) && (x & EVENT_BIT_SENSOR_2) && (x & EVENT_BIT_SENSOR_3))){
       itamotorino.setSpeeds(-191, 191);
     }
-    else if ((x & EVENT_SENSOR2) || (x & EVENT_SENSOR3) || ((x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
+    else if ((x & EVENT_BIT_SENSOR_2) || (x & EVENT_BIT_SENSOR_3) || ((x & EVENT_BIT_SENSOR_2) && (x & EVENT_BIT_SENSOR_3))){
       itamotorino.setSpeeds(-255, -255);
     }
   }
@@ -353,7 +353,7 @@ void PulseMotors(uint8_t qty){
 
 void MovementTask(void *pvParameters){
   for(;;){
-    if (state != RobotState::kStop)
+    if (state != FightState::kStop)
       RunStrategy();
     else{
       KillMotors();
