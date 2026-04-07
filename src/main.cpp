@@ -41,7 +41,7 @@ unsigned long time_1, time_2;
 FightState state = FightState::kReady;
 Strategy strat = Strategy::kRadarEsq;
 
-QTRSensorsAnalog qtra((unsigned char[]){QTR1, QTR2}, NUM_SENSORS, NUM_SAMPLES_PER_SENSOR);
+QTRSensorsAnalog qtra((unsigned char[]){QTR_1, QTR_2}, NUM_SENSORS, NUM_SAMPLES_PER_SENSOR);
 uint32_t sensor_values[NUM_SENSORS];
 
 const char* kMinKeys[NUM_SENSORS] = {"kMinQtr1", "kMinQtr2"};
@@ -67,10 +67,10 @@ const std::map<int, int> sensor_pins_and_bits = {
   {IR_SENSOR_2, EVENT_BIT_SENSOR_2},
   {IR_SENSOR_3, EVENT_BIT_SENSOR_3},
   {IR_SENSOR_4, EVENT_BIT_SENSOR_4},
+  {IR_SENSOR_5, EVENT_BIT_SENSOR_5}, 
 };
 
 const int input_pins[4] = {IR_SENSOR_1, IR_SENSOR_2, IR_SENSOR_3, IR_SENSOR_4};
-const int output_pins[3] = {LED_BUILTIN, LED1, LED2};
 
 Itamotorino itamotorino = Itamotorino(AIN1, AIN2, BIN1, BIN2, PWMA, PWMB);
 
@@ -95,8 +95,8 @@ void setup(){
   sensor_events = xEventGroupCreate();
 
   for (auto& pin : input_pins) pinMode(pin, INPUT);
-  for (auto& pin : output_pins) pinMode(pin, OUTPUT);
-  
+  pinMode(LED_BUILTIN, OUTPUT);
+
   IrReceiver.begin(IR, true, LED_BUILTIN);
   IrReceiver.enableIRIn();
 
@@ -136,13 +136,11 @@ void CalibrateSensors(const bool use_nvs_calibration){
     }
     else{
       if (DEBUG_MODE) Serial.println("WRITE");
-      digitalWrite(LED1, HIGH);
-      digitalWrite(LED2, HIGH);
+      digitalWrite(LED_BUILTIN, HIGH);
       for(int i = 0; i < 1200; i++){
         qtra.calibrate();
       }
-      digitalWrite(LED1, LOW);
-      digitalWrite(LED2, LOW);
+      digitalWrite(LED_BUILTIN, LOW);
       if (nvs_handler.StartStorage()){
         for(int i = 0; i < NUM_SENSORS; i++){
           nvs_handler.WriteUnsignedIntToNVS(kMinKeys[i], qtra.calibratedMinimumOn[i]);
@@ -167,11 +165,9 @@ void CalibrateSensors(const bool use_nvs_calibration){
 void BlinkNTimes(uint8_t n){
   while (n > 0){
     --n;
-    digitalWrite(LED1, HIGH);
-    digitalWrite(LED2, HIGH);
+    digitalWrite(LED_BUILTIN, HIGH);
     vTaskDelay(200);
-    digitalWrite(LED1, LOW);
-    digitalWrite(LED2, LOW);
+    digitalWrite(LED_BUILTIN, LOW);
     vTaskDelay(200);
   }
 }
