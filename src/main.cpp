@@ -1,13 +1,14 @@
 #define DECODE_SONY // Limita biblioteca de IR ao protocolo Sony.
 
 #include <map>
+#include <functional>
 #include <Arduino.h>
 #include <globals.h>
 #include <QTRSensors.h>
 #include <IRremote.hpp>
 #include <Itamotorino.h>
 #include <enumerators.hpp>
-#include <nvs_handler.hpp>
+#include <NVSHandler.hpp>
 #include <detection_functions.hpp>
 
 #include <freertos/FreeRTOS.h>
@@ -15,7 +16,7 @@
 
 // protótipos de função
 
-void CalibrateSensors(const bool use_nvs_calibration);
+void CalibrateQTRSensors(QTRCalibration qtr_calibration);
 void BlinkNTimes(uint8_t n);
 void DecodeIrSignal();
 
@@ -24,12 +25,12 @@ void DetectLine();
 void RunStrategy();
 void RadarEsquerdo();
 void RadarDireito();
-void CurvaAberta();
 void Woodpecker();
 void Follow();
 void LineDetectedProtocol(Direction direction);
 void KillMotors();
 void PulseMotors(uint8_t qty);
+void ControlMotors(Direction d);
 
 void MovementTask(void *pvParameters);
 void SensingTask(void *pvParameters);
@@ -41,8 +42,8 @@ unsigned long time_1, time_2;
 FightState state = FightState::kReady;
 Strategy strat = Strategy::kRadarEsq;
 
-QTRSensorsAnalog qtra((unsigned char[]){QTR_1, QTR_2}, NUM_SENSORS, NUM_SAMPLES_PER_SENSOR);
-uint32_t sensor_values[NUM_SENSORS];
+QTRSensors qtr_handler;
+uint16_t sensor_values[NUM_SENSORS];
 
 const char* kMinKeys[NUM_SENSORS] = {"kMinQtr1", "kMinQtr2"};
 const char* kMaxKeys[NUM_SENSORS] = {"kMaxQtr1", "kMaxQtr2"};
@@ -54,7 +55,6 @@ const std::map<uint16_t, FightState> states = {
 };
 
 const std::map<uint16_t, Strategy> strats = {
-  {static_cast<uint16_t>(Strategy::kCurvaAberta), Strategy::kCurvaAberta}, 
   {static_cast<uint16_t>(Strategy::kFollowOnly), Strategy::kFollowOnly},
   {static_cast<uint16_t>(Strategy::kRadarDir), Strategy::kRadarDir},
   {static_cast<uint16_t>(Strategy::kRadarEsq), Strategy::kRadarEsq},
@@ -67,7 +67,6 @@ const std::map<int, int> sensor_pins_and_bits = {
   {IR_SENSOR_2, EVENT_BIT_SENSOR_2},
   {IR_SENSOR_3, EVENT_BIT_SENSOR_3},
   {IR_SENSOR_4, EVENT_BIT_SENSOR_4},
-  {IR_SENSOR_5, EVENT_BIT_SENSOR_5}, 
 };
 
 const int input_pins[4] = {IR_SENSOR_1, IR_SENSOR_2, IR_SENSOR_3, IR_SENSOR_4};
@@ -87,7 +86,6 @@ void setup(){
     Serial.begin(115200);
     while (!Serial){;}
   }
-  nvs_handler.StartStorage();
   analogReadResolution(10);
   disableCore0WDT();
   disableCore1WDT();
@@ -100,7 +98,7 @@ void setup(){
   IrReceiver.begin(IR, true, LED_BUILTIN);
   IrReceiver.enableIRIn();
 
-  CalibrateSensors(true); // mudar para true quando já calibrado
+  CalibrateQTRSensors(QTRCalibration::kUseCalibration); // mudar quando já calibrado
   xTaskCreatePinnedToCore(MovementTask, "MovementTask", STACK_DEPTH,
                           NULL, TASK_PRIORITY, &movement_task, 1);
 
@@ -110,55 +108,27 @@ void setup(){
 
 void loop(){}
 
-void CalibrateSensors(const bool use_nvs_calibration){
-  qtra.calibrate(); // chamada única para inicializar os valores
-  uint32_t min_value, max_value;
-  if (nvs_handler.StartStorage()){
-    if (use_nvs_calibration){
-    if (DEBUG_MODE) Serial.println("READ");
-      for(int i = 0; i < NUM_SENSORS; i++){
-        min_value = nvs_handler.ReadUnsignedIntFromNVS(kMinKeys[i]);
-        max_value = nvs_handler.ReadUnsignedIntFromNVS(kMaxKeys[i]);
-        if(min_value != -1){
-          qtra.calibratedMinimumOn[i] = min_value;
-        }
-        if(max_value != -1){
-          qtra.calibratedMinimumOn[i] = max_value;
-        }
-
-        if (DEBUG_MODE){
-          Serial.print(kMinKeys[i]);
-          Serial.println(min_value);
-          Serial.print(kMaxKeys[i]);
-          Serial.println(max_value);
-        }
-      }
-    }
-    else{
-      if (DEBUG_MODE) Serial.println("WRITE");
+void CalibrateQTRSensors(QTRCalibration qtr_calibration){
+  qtr_handler.calibrate();
+  if (nvs_handler.StartStorage(NVS_READWRITE) == ESP_OK){
+    if (qtr_calibration == QTRCalibration::kUseCalibration){
       digitalWrite(LED_BUILTIN, HIGH);
-      for(int i = 0; i < 1200; i++){
-        qtra.calibrate();
-      }
-      digitalWrite(LED_BUILTIN, LOW);
-      if (nvs_handler.StartStorage()){
-        for(int i = 0; i < NUM_SENSORS; i++){
-          nvs_handler.WriteUnsignedIntToNVS(kMinKeys[i], qtra.calibratedMinimumOn[i]);
-          nvs_handler.WriteUnsignedIntToNVS(kMaxKeys[i], qtra.calibratedMaximumOn[i]);
-          if (DEBUG_MODE){
-            Serial.print(kMinKeys[i] + ' ');
-            Serial.println(qtra.calibratedMinimumOn[i]);
-            Serial.print(kMaxKeys[i] + ' ');
-            Serial.println(qtra.calibratedMaximumOn[i]);
-          }
-        }
+      for (unsigned int i = 0; i < 1200; ++i) qtr_handler.calibrate();
+      for (unsigned int i = 0; i < NUM_SENSORS; i++){
+        ESP_ERROR_CHECK(nvs_handler.WriteUInt16(kMinKeys[i], &qtr_handler.calibrationOn.minimum[i]));
+        ESP_ERROR_CHECK(nvs_handler.WriteUInt16(kMaxKeys[i], &qtr_handler.calibrationOn.maximum[i]));
       }
     }
-    nvs_handler.CloseStorage();
+    else {
+      for (unsigned int i = 0; i < NUM_SENSORS; i++){
+        ESP_ERROR_CHECK(nvs_handler.ReadUInt16(kMinKeys[i], &qtr_handler.calibrationOn.minimum[i]));
+        ESP_ERROR_CHECK(nvs_handler.ReadUInt16(kMaxKeys[i], &qtr_handler.calibrationOn.maximum[i]));
+      }
+    }
+    nvs_handler.CloseStorage();    
   }
   else{
-    if (DEBUG_MODE) Serial.println("Error with calibration");
-    BlinkNTimes(10);
+    if (DEBUG_MODE) Serial.println("Erro na leitura/escrita de NVS.");
   }
 }
 
@@ -204,15 +174,24 @@ void DecodeIrSignal(){
 
 void DetectLine(){
   if (state == FightState::kRunning){
-    int line_info = qtra.readLine(sensor_values, QTR_EMITTERS_ON, true); // este valor é entre zero ou mil
+    uint16_t line_info = qtr_handler.readLineWhite(sensor_values, QTRReadMode::On); // este valor é entre zero ou mil
     if (DEBUG_MODE) Serial.println(line_info);
-    if (line_info <= 500){
+    
+    if (sensor_values[0] < 500 && sensor_values[1] > 500){
+      xEventGroupSetBits(sensor_events, EVENT_QRE_RIGHT);
+      xEventGroupClearBits(sensor_events, EVENT_QRE_LEFT);
+    }
+    else if (sensor_values[0] > 500 && sensor_values[1] < 500){
       xEventGroupSetBits(sensor_events, EVENT_QRE_LEFT);
       xEventGroupClearBits(sensor_events, EVENT_QRE_RIGHT);
     }
-    else{
+    else if (sensor_values[0] < 500 && sensor_values[1] < 500){
+      xEventGroupSetBits(sensor_events, EVENT_QRE_LEFT);
       xEventGroupSetBits(sensor_events, EVENT_QRE_RIGHT);
+    }
+    else if (sensor_values[0] > 500 && sensor_values[1] > 500){
       xEventGroupClearBits(sensor_events, EVENT_QRE_LEFT);
+      xEventGroupClearBits(sensor_events, EVENT_QRE_RIGHT);
     }
   }
 }
@@ -224,9 +203,6 @@ void RunStrategy(){ // isso podia ser um map<Strategy, void (*function)()> ?
       break;
     case Strategy::kRadarDir:
       RadarDireito();
-      break;
-    case Strategy::kCurvaAberta:
-      CurvaAberta();
       break;
     case Strategy::kFollowOnly:
       Follow();
@@ -243,7 +219,7 @@ void RadarEsquerdo(){
   if (state == FightState::kRunning){
     x = WaitForSensorEvents(sensor_events);
     if (!(x & EVENT_BIT_SENSOR_1) && !(x & EVENT_BIT_SENSOR_2) && !(x & EVENT_BIT_SENSOR_3) && !(x & EVENT_BIT_SENSOR_4)){
-      itamotorino.setSpeeds(191, -191);
+      ControlMotors(Direction::kLeft);
     }
     else{
       while(state == FightState::kRunning)
@@ -256,42 +232,12 @@ void RadarDireito(){
   if (state == FightState::kRunning){
     x = WaitForSensorEvents(sensor_events);
     if (!(x | EVENT_BIT_SENSOR_1) && !(x | EVENT_BIT_SENSOR_2) && !(x | EVENT_BIT_SENSOR_3) && !(x | EVENT_BIT_SENSOR_4)){
-      itamotorino.setSpeeds(-191, 191);
+      ControlMotors(Direction::kLeft);
     }
     else{
       while(state == FightState::kRunning)
         Follow();
     }
-  }
-}
-
-void CurvaAberta(){
-  time_1 = millis();
-  if (state == FightState::kRunning){
-    Direction direction;
-    x = WaitForSensorEvents(sensor_events);
-    if (x & EVENT_BIT_SENSOR_1){
-      direction = Direction::kLeft;
-      itamotorino.setSpeeds(-191, 191);
-    }
-    else if (x & EVENT_BIT_SENSOR_4){
-      direction = Direction::kRight;
-      itamotorino.setSpeeds(191, 191);
-    }
-    if (x & EVENT_QRE_LEFT || x & EVENT_QRE_RIGHT){
-      if (direction == Direction::kLeft)
-        LineDetectedProtocol(Direction::kRight);
-      else
-        LineDetectedProtocol(Direction::kLeft);
-    }
-    if (millis() - time_1 >= 2000){
-      if (direction == Direction::kLeft)
-        itamotorino.setSpeeds(191, 191); 
-      else
-        itamotorino.setSpeeds(-191, 191);
-        vTaskDelay(300);
-    }
-    Follow();
   }
 }
 
@@ -310,26 +256,23 @@ void Follow(){
     if (x & EVENT_BIT_SENSOR_1 ||
        ((x & EVENT_BIT_SENSOR_1) && (x & EVENT_BIT_SENSOR_2)) ||
        ((x & EVENT_BIT_SENSOR_1) && (x & EVENT_BIT_SENSOR_2) && (x & EVENT_BIT_SENSOR_3))){
-      itamotorino.setSpeeds(191, -191);
+      ControlMotors(Direction::kLeft);
     }
     else if (x & EVENT_BIT_SENSOR_4 ||
             ((x & EVENT_BIT_SENSOR_4) && (x & EVENT_BIT_SENSOR_3)) || 
             ((x & EVENT_BIT_SENSOR_4) && (x & EVENT_BIT_SENSOR_2) && (x & EVENT_BIT_SENSOR_3))){
-      itamotorino.setSpeeds(-191, 191);
+      ControlMotors(Direction::kRight);          
     }
     else if ((x & EVENT_BIT_SENSOR_2) || (x & EVENT_BIT_SENSOR_3) || ((x & EVENT_BIT_SENSOR_2) && (x & EVENT_BIT_SENSOR_3))){
-      itamotorino.setSpeeds(-255, -255);
+      ControlMotors(Direction::kForward);
     }
   }
 }
 
 void LineDetectedProtocol(Direction direction){
-  itamotorino.setSpeeds(-255, 255);
+  ControlMotors(Direction::kBackward);
   vTaskDelay(pdMS_TO_TICKS(300));
-  if (direction == Direction::kLeft)
-    itamotorino.setSpeeds(191, -191);
-  else
-    itamotorino.setSpeeds(-191, 191);
+  ControlMotors(direction);
   vTaskDelay(pdMS_TO_TICKS(300));
 }
 
@@ -339,7 +282,7 @@ void KillMotors(){
 
 void PulseMotors(uint8_t qty){
   while (qty){
-    itamotorino.setSpeeds(-255, 255);
+    ControlMotors(Direction::kForward);
     vTaskDelay(pdMS_TO_TICKS(100));
     KillMotors();
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -364,5 +307,24 @@ void SensingTask(void *pvParameters){
       DecodeIrSignal();
     DetectEnemies(sensor_events, sensor_pins_and_bits);
     DetectLine();
+  }
+}
+
+void ControlMotors(Direction d){
+  switch (d){
+    case Direction::kBackward:
+      itamotorino.setSpeeds(255, 255);
+      break;
+    case Direction::kForward:
+      itamotorino.setSpeeds(-255, -255);
+      break;
+    case Direction::kLeft:
+      itamotorino.setSpeeds(191, -191);
+      break;
+    case Direction::kRight:
+      itamotorino.setSpeeds(-191, 191);
+      break;
+    default:
+      break;
   }
 }

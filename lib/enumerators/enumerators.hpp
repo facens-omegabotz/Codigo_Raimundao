@@ -10,7 +10,6 @@ enum class FightState {
 enum class Strategy {
   kRadarEsq = 0x3, // Comando HEX recebido pelo número 4.
   kRadarDir,
-  kCurvaAberta,
   kFollowOnly,
   kWoodPecker
 };
@@ -20,6 +19,11 @@ enum class Direction {
   kRight,
   kForward,
   kBackward
+};
+
+enum class QTRCalibration : unsigned char {
+  kUseNVS,
+  kUseCalibration
 };
 
 enum class IrDetectionState {
