@@ -30,6 +30,8 @@ void Follow();
 void LineDetectedProtocol(Direction direction);
 void KillMotors();
 void PulseMotors(uint8_t qty);
+void ControlMotors();
+
 
 void MovementTask(void *pvParameters);
 void SensingTask(void *pvParameters);
@@ -39,6 +41,7 @@ void SensingTask(void *pvParameters);
 unsigned long time_1, time_2;
 
 RobotState state = RobotState::kReady;
+Direction cur_direction;
 Strategy strat = Strategy::kRadarEsq;
 
 QTRSensorsAnalog qtra((unsigned char[]){QTR1, QTR2}, NUM_SENSORS, NUM_SAMPLES_PER_SENSOR);
@@ -100,7 +103,7 @@ void setup(){
   IrReceiver.begin(IR, true, LED_BUILTIN);
   IrReceiver.enableIRIn();
 
-  CalibrateSensors(false); // mudar para true quando já calibrado
+  CalibrateSensors(true); // mudar para true quando já calibrado
   xTaskCreatePinnedToCore(MovementTask, "MovementTask", STACK_DEPTH,
                           NULL, TASK_PRIORITY, &movement_task, 1);
 
@@ -310,17 +313,61 @@ void Woodpecker(){
 void Follow(){
   if (state == RobotState::kRunning){
     x = WaitForSensorEvents(sensor_events);
+    if (DEBUG_MODE) Serial.println(x, BIN);
     // TODO: rever essa bomba
-    if (x & EVENT_QRE_LEFT || x & EVENT_QRE_RIGHT){
+    /*if (x & EVENT_QRE_LEFT || x & EVENT_QRE_RIGHT){
       if (x & EVENT_SENSOR1)
         LineDetectedProtocol(Direction::kLeft);
       else if (x & EVENT_SENSOR4)
         LineDetectedProtocol(Direction::kRight);
       else
         LineDetectedProtocol(Direction::kLeft);
+    }*/
+    switch (x){
+      case 0b0001:
+        cur_direction = Direction::kLeft;  
+        break;
+      case 0b0011:
+        cur_direction = Direction::kLeft;
+        break;
+      case 0b0111:
+        cur_direction = Direction::kLeft;
+        break;
+      
+      case 0b1000:
+        cur_direction = Direction::kRight;
+        break;
+      case 0b1100:
+        cur_direction = Direction::kRight;
+        break;
+      
+      case 0b1110:
+        cur_direction = Direction::kRight;
+        break;
+      case 0b0110:
+        cur_direction = Direction::kFront;
+        break;
+      case 0b0100:
+        cur_direction = Direction::kFront;  
+        break;
+      case 0b0010:
+        cur_direction = Direction::kFront;  
+        break;
+      
+      case 0b0000:
+        if (strat == Strategy::kRadarDir){
+          cur_direction = Direction::kRight;
+        }
+        else if (strat == Strategy::kRadarEsq){
+          cur_direction = Direction::kLeft;
+        }
+        break;
+      default:
+        break;        
     }
+    ControlMotors();
 
-    if (x & EVENT_SENSOR1 ||
+    /*if (x & EVENT_SENSOR1 ||
        ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2)) ||
        ((x & EVENT_SENSOR1) && (x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
       itamotorino.setSpeeds(191, -191);
@@ -332,7 +379,7 @@ void Follow(){
     }
     else if ((x & EVENT_SENSOR2) || (x & EVENT_SENSOR3) || ((x & EVENT_SENSOR2) && (x & EVENT_SENSOR3))){
       itamotorino.setSpeeds(-255, -255);
-    }
+    }*/
   }
 }
 
@@ -376,6 +423,22 @@ void SensingTask(void *pvParameters){
     if (IrReceiver.decode())
       DecodeIrSignal();
     DetectEnemies(sensor_events, sensor_pins_and_bits);
-    DetectLine();
+    //DetectLine();
+  }
+}
+
+void ControlMotors(){
+  switch (cur_direction){
+    case Direction::kFront:
+      itamotorino.setSpeeds(-255, -255);
+      break;
+    case Direction::kLeft:
+      itamotorino.setSpeeds(191, -191);
+      break;
+    case Direction::kRight:
+      itamotorino.setSpeeds(-191, 191);
+      break;
+    default:
+      break;
   }
 }

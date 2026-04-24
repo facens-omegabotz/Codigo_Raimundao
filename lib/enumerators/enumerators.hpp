@@ -17,7 +17,8 @@ enum class Strategy {
 
 enum class Direction {
   kLeft,
-  kRight
+  kRight,
+  kFront
 };
 
 #endif
