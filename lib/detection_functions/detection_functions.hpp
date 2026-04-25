@@ -6,7 +6,7 @@
 EventBits_t WaitForSensorEvents(EventGroupHandle_t event_group){
   return xEventGroupWaitBits(
     event_group, 
-    EVENT_SENSOR1 | EVENT_SENSOR2 | EVENT_SENSOR3 | EVENT_SENSOR4 | EVENT_QRE_LEFT | EVENT_QRE_RIGHT, 
+    EVENT_SENSOR1 | EVENT_SENSOR2 | EVENT_SENSOR3 | EVENT_SENSOR4, 
     true, 
     false, 
     pdMS_TO_TICKS(30)
