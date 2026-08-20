@@ -50,19 +50,43 @@ uint32_t sensor_values[NUM_SENSORS];
 const char* kMinKeys[NUM_SENSORS] = {"kMinQtr1", "kMinQtr2"};
 const char* kMaxKeys[NUM_SENSORS] = {"kMaxQtr1", "kMaxQtr2"};
 
-const std::map<uint16_t, RobotState> states = {
-  {static_cast<uint16_t>(RobotState::kReady), RobotState::kReady}, 
-  {static_cast<uint16_t>(RobotState::kRunning), RobotState::kRunning},
-  {static_cast<uint16_t>(RobotState::kStop), RobotState::kStop},
-};
+bool TryParseRobotState(const uint16_t command, RobotState& out_state){
+  switch (command){
+    case static_cast<uint16_t>(RobotState::kReady):
+      out_state = RobotState::kReady;
+      return true;
+    case static_cast<uint16_t>(RobotState::kRunning):
+      out_state = RobotState::kRunning;
+      return true;
+    case static_cast<uint16_t>(RobotState::kStop):
+      out_state = RobotState::kStop;
+      return true;
+    default:
+      return false;
+  }
+}
 
-const std::map<uint16_t, Strategy> strats = {
-  {static_cast<uint16_t>(Strategy::kCurvaAberta), Strategy::kCurvaAberta}, 
-  {static_cast<uint16_t>(Strategy::kFollowOnly), Strategy::kFollowOnly},
-  {static_cast<uint16_t>(Strategy::kRadarDir), Strategy::kRadarDir},
-  {static_cast<uint16_t>(Strategy::kRadarEsq), Strategy::kRadarEsq},
-  {static_cast<uint16_t>(Strategy::kWoodPecker), Strategy::kWoodPecker},
-};
+bool TryParseStrategy(const uint16_t command, Strategy& out_strategy){
+  switch (command){
+    case static_cast<uint16_t>(Strategy::kRadarEsq):
+      out_strategy = Strategy::kRadarEsq;
+      return true;
+    case static_cast<uint16_t>(Strategy::kRadarDir):
+      out_strategy = Strategy::kRadarDir;
+      return true;
+    case static_cast<uint16_t>(Strategy::kCurvaAberta):
+      out_strategy = Strategy::kCurvaAberta;
+      return true;
+    case static_cast<uint16_t>(Strategy::kFollowOnly):
+      out_strategy = Strategy::kFollowOnly;
+      return true;
+    case static_cast<uint16_t>(Strategy::kWoodPecker):
+      out_strategy = Strategy::kWoodPecker;
+      return true;
+    default:
+      return false;
+  }
+}
 
 /* Tem repetição de dados aqui. Não tem um problema maior por ser ESP32 devkit, mas não deveria estar aqui. */
 const std::map<int, int> sensor_pins_and_bits = {
@@ -181,23 +205,22 @@ void BlinkNTimes(uint8_t n){
 
 void DecodeIrSignal(){
   IrReceiver.resume();
+  const uint16_t command = IrReceiver.decodedIRData.command;
 
-  if (states.find(IrReceiver.decodedIRData.command) != states.end()){
-    switch (states.find(IrReceiver.decodedIRData.command)->second){
-      case RobotState::kStop:
-        state = RobotState::kStop;
-        break;
-      default:
-        if (state == RobotState::kReady){
-          state = states.find(IrReceiver.decodedIRData.command)->second;
-        }
-        break;
+  RobotState decoded_state;
+  if (TryParseRobotState(command, decoded_state)){
+    if (decoded_state == RobotState::kStop){
+      state = RobotState::kStop;
+    }
+    else if (state == RobotState::kReady){
+      state = decoded_state;
     }
   }
 
-  if (strats.find(IrReceiver.decodedIRData.command) != strats.end()){
+  Strategy decoded_strategy;
+  if (TryParseStrategy(command, decoded_strategy)){
     if (state == RobotState::kReady){
-      strat = strats.find(IrReceiver.decodedIRData.command)->second;
+      strat = decoded_strategy;
     }
   }
 
@@ -211,7 +234,7 @@ void DecodeIrSignal(){
 
 void DetectLine(){
   if (state == RobotState::kRunning){
-    int line_info = qtra.readLine(sensor_values, QTR_EMITTERS_ON, true); // este valor é entre zero ou mil
+    int line_info = qtra.readLine(sensor_values, QTR_EMITTERS_ON, true); // faixa aproximada: 0..1000
     if (DEBUG_MODE) Serial.println(line_info);
     if (line_info <= 500){
       xEventGroupSetBits(sensor_events, EVENT_QRE_LEFT);
@@ -262,7 +285,7 @@ void RadarEsquerdo(){
 void RadarDireito(){
   if (state == RobotState::kRunning){
     x = WaitForSensorEvents(sensor_events);
-    if (!(x | EVENT_SENSOR1) && !(x | EVENT_SENSOR2) && !(x | EVENT_SENSOR3) && !(x | EVENT_SENSOR4)){
+    if (!(x & EVENT_SENSOR1) && !(x & EVENT_SENSOR2) && !(x & EVENT_SENSOR3) && !(x & EVENT_SENSOR4)){
       itamotorino.setSpeeds(-191, 191);
     }
     else{
@@ -275,7 +298,7 @@ void RadarDireito(){
 void CurvaAberta(){
   time_1 = millis();
   if (state == RobotState::kRunning){
-    Direction direction;
+    Direction direction = Direction::kFront;
     x = WaitForSensorEvents(sensor_events);
     if (x & EVENT_SENSOR1){
       direction = Direction::kLeft;
@@ -285,10 +308,10 @@ void CurvaAberta(){
       direction = Direction::kRight;
       itamotorino.setSpeeds(191, 191);
     }
-    if (x & EVENT_QRE_LEFT || x & EVENT_QRE_RIGHT){
+    if ((x & EVENT_QRE_LEFT) || (x & EVENT_QRE_RIGHT)){
       if (direction == Direction::kLeft)
         LineDetectedProtocol(Direction::kRight);
-      else
+      else if (direction == Direction::kRight)
         LineDetectedProtocol(Direction::kLeft);
     }
     if (millis() - time_1 >= 2000){
@@ -306,7 +329,7 @@ void Woodpecker(){
   if (state == RobotState::kRunning){
     PulseMotors(WOODPECKER_PULSES);
     vTaskDelay(pdMS_TO_TICKS(1000));
-    while(state == RobotState::kRunning) Follow();
+    Follow();
   }
 }
 
