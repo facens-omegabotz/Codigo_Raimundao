@@ -7,6 +7,7 @@
 #include <IRremote.hpp>
 #include <Itamotorino.h>
 #include <enumerators.hpp>
+#include <state_machine.hpp>
 #include <nvs_handler.hpp>
 #include <detection_functions.hpp>
 
@@ -31,6 +32,7 @@ void LineDetectedProtocol(Direction direction);
 void KillMotors();
 void PulseMotors(uint8_t qty);
 void ControlMotors();
+void SetMotorSpeeds(int16_t left_speed, int16_t right_speed);
 
 
 void MovementTask(void *pvParameters);
@@ -40,9 +42,7 @@ void SensingTask(void *pvParameters);
 
 unsigned long time_1, time_2;
 
-RobotState state = RobotState::kReady;
-Direction cur_direction;
-Strategy strat = Strategy::kRadarEsq;
+StateMachine state_machine;
 
 QTRSensorsAnalog qtra((unsigned char[]){QTR1, QTR2}, NUM_SENSORS, NUM_SAMPLES_PER_SENSOR);
 uint32_t sensor_values[NUM_SENSORS];
@@ -181,37 +181,20 @@ void BlinkNTimes(uint8_t n){
 
 void DecodeIrSignal(){
   IrReceiver.resume();
-
-  if (states.find(IrReceiver.decodedIRData.command) != states.end()){
-    switch (states.find(IrReceiver.decodedIRData.command)->second){
-      case RobotState::kStop:
-        state = RobotState::kStop;
-        break;
-      default:
-        if (state == RobotState::kReady){
-          state = states.find(IrReceiver.decodedIRData.command)->second;
-        }
-        break;
-    }
-  }
-
-  if (strats.find(IrReceiver.decodedIRData.command) != strats.end()){
-    if (state == RobotState::kReady){
-      strat = strats.find(IrReceiver.decodedIRData.command)->second;
-    }
-  }
+  state_machine.ApplyIrCommand(IrReceiver.decodedIRData.command, states, strats);
 
   if (DEBUG_MODE){
     Serial.print("Current state: ");
-    Serial.println(static_cast<uint16_t>(state));
+    Serial.println(static_cast<uint16_t>(state_machine.GetRobotState()));
     Serial.print("Current strat: ");
-    Serial.println(static_cast<uint16_t>(strat));
+    Serial.println(static_cast<uint16_t>(state_machine.GetSelectedStrategy()));
   }
 }
 
 void DetectLine(){
-  if (state == RobotState::kRunning){
+  if (state_machine.GetRobotState() == RobotState::kRunning){
     int line_info = qtra.readLine(sensor_values, QTR_EMITTERS_ON, true); // este valor é entre zero ou mil
+    state_machine.SetQtrData(line_info, sensor_values, NUM_SENSORS);
     if (DEBUG_MODE) Serial.println(line_info);
     if (line_info <= 500){
       xEventGroupSetBits(sensor_events, EVENT_QRE_LEFT);
@@ -225,7 +208,7 @@ void DetectLine(){
 }
 
 void RunStrategy(){ // isso podia ser um map<Strategy, void (*function)()> ?
-  switch (strat){
+  switch (state_machine.GetSelectedStrategy()){
     case Strategy::kRadarEsq:
       RadarEsquerdo();
       break;
@@ -247,26 +230,28 @@ void RunStrategy(){ // isso podia ser um map<Strategy, void (*function)()> ?
 }
 
 void RadarEsquerdo(){
-  if (state == RobotState::kRunning){
+  if (state_machine.GetRobotState() == RobotState::kRunning){
     x = WaitForSensorEvents(sensor_events);
+    state_machine.SetInfraredSensorBits(x);
     if (!(x & EVENT_SENSOR1) && !(x & EVENT_SENSOR2) && !(x & EVENT_SENSOR3) && !(x & EVENT_SENSOR4)){
-      itamotorino.setSpeeds(191, -191);
+      SetMotorSpeeds(191, -191);
     }
     else{
-      while(state == RobotState::kRunning)
+      while(state_machine.GetRobotState() == RobotState::kRunning)
         Follow();
     }
   }
 }
 
 void RadarDireito(){
-  if (state == RobotState::kRunning){
+  if (state_machine.GetRobotState() == RobotState::kRunning){
     x = WaitForSensorEvents(sensor_events);
-    if (!(x | EVENT_SENSOR1) && !(x | EVENT_SENSOR2) && !(x | EVENT_SENSOR3) && !(x | EVENT_SENSOR4)){
-      itamotorino.setSpeeds(-191, 191);
+    state_machine.SetInfraredSensorBits(x);
+    if (!(x & EVENT_SENSOR1) && !(x & EVENT_SENSOR2) && !(x & EVENT_SENSOR3) && !(x & EVENT_SENSOR4)){
+      SetMotorSpeeds(-191, 191);
     }
     else{
-      while(state == RobotState::kRunning)
+      while(state_machine.GetRobotState() == RobotState::kRunning)
         Follow();
     }
   }
@@ -274,16 +259,17 @@ void RadarDireito(){
 
 void CurvaAberta(){
   time_1 = millis();
-  if (state == RobotState::kRunning){
+  if (state_machine.GetRobotState() == RobotState::kRunning){
     Direction direction;
     x = WaitForSensorEvents(sensor_events);
+    state_machine.SetInfraredSensorBits(x);
     if (x & EVENT_SENSOR1){
       direction = Direction::kLeft;
-      itamotorino.setSpeeds(-191, 191);
+      SetMotorSpeeds(-191, 191);
     }
     else if (x & EVENT_SENSOR4){
       direction = Direction::kRight;
-      itamotorino.setSpeeds(191, 191);
+      SetMotorSpeeds(191, 191);
     }
     if (x & EVENT_QRE_LEFT || x & EVENT_QRE_RIGHT){
       if (direction == Direction::kLeft)
@@ -293,9 +279,9 @@ void CurvaAberta(){
     }
     if (millis() - time_1 >= 2000){
       if (direction == Direction::kLeft)
-        itamotorino.setSpeeds(191, 191); 
+        SetMotorSpeeds(191, 191); 
       else
-        itamotorino.setSpeeds(-191, 191);
+        SetMotorSpeeds(-191, 191);
         vTaskDelay(300);
     }
     Follow();
@@ -303,16 +289,17 @@ void CurvaAberta(){
 }
 
 void Woodpecker(){
-  if (state == RobotState::kRunning){
+  if (state_machine.GetRobotState() == RobotState::kRunning){
     PulseMotors(WOODPECKER_PULSES);
     vTaskDelay(pdMS_TO_TICKS(1000));
-    while(state == RobotState::kRunning) Follow();
+    while(state_machine.GetRobotState() == RobotState::kRunning) Follow();
   }
 }
 
 void Follow(){
-  if (state == RobotState::kRunning){
+  if (state_machine.GetRobotState() == RobotState::kRunning){
     x = WaitForSensorEvents(sensor_events);
+    state_machine.SetInfraredSensorBits(x);
     if (DEBUG_MODE) Serial.println(x, BIN);
     // TODO: rever essa bomba
     /*if (x & EVENT_QRE_LEFT || x & EVENT_QRE_RIGHT){
@@ -325,41 +312,41 @@ void Follow(){
     }*/
     switch (x){
       case 0b0001:
-        cur_direction = Direction::kLeft;  
+        state_machine.SetDirection(Direction::kLeft);
         break;
       case 0b0011:
-        cur_direction = Direction::kLeft;
+        state_machine.SetDirection(Direction::kLeft);
         break;
       case 0b0111:
-        cur_direction = Direction::kLeft;
+        state_machine.SetDirection(Direction::kLeft);
         break;
       
       case 0b1000:
-        cur_direction = Direction::kRight;
+        state_machine.SetDirection(Direction::kRight);
         break;
       case 0b1100:
-        cur_direction = Direction::kRight;
+        state_machine.SetDirection(Direction::kRight);
         break;
       
       case 0b1110:
-        cur_direction = Direction::kRight;
+        state_machine.SetDirection(Direction::kRight);
         break;
       case 0b0110:
-        cur_direction = Direction::kFront;
+        state_machine.SetDirection(Direction::kFront);
         break;
       case 0b0100:
-        cur_direction = Direction::kFront;  
+        state_machine.SetDirection(Direction::kFront);
         break;
       case 0b0010:
-        cur_direction = Direction::kFront;  
+        state_machine.SetDirection(Direction::kFront);
         break;
       
       case 0b0000:
-        if (strat == Strategy::kRadarDir){
-          cur_direction = Direction::kRight;
+        if (state_machine.GetSelectedStrategy() == Strategy::kRadarDir){
+          state_machine.SetDirection(Direction::kRight);
         }
-        else if (strat == Strategy::kRadarEsq){
-          cur_direction = Direction::kLeft;
+        else if (state_machine.GetSelectedStrategy() == Strategy::kRadarEsq){
+          state_machine.SetDirection(Direction::kLeft);
         }
         break;
       default:
@@ -384,22 +371,22 @@ void Follow(){
 }
 
 void LineDetectedProtocol(Direction direction){
-  itamotorino.setSpeeds(-255, 255);
+  SetMotorSpeeds(-255, 255);
   vTaskDelay(pdMS_TO_TICKS(300));
   if (direction == Direction::kLeft)
-    itamotorino.setSpeeds(191, -191);
+    SetMotorSpeeds(191, -191);
   else
-    itamotorino.setSpeeds(-191, 191);
+    SetMotorSpeeds(-191, 191);
   vTaskDelay(pdMS_TO_TICKS(300));
 }
 
 void KillMotors(){
-  itamotorino.setSpeeds(0, 0);
+  SetMotorSpeeds(0, 0);
 }
 
 void PulseMotors(uint8_t qty){
   while (qty){
-    itamotorino.setSpeeds(-255, 255);
+    SetMotorSpeeds(-255, 255);
     vTaskDelay(pdMS_TO_TICKS(100));
     KillMotors();
     vTaskDelay(pdMS_TO_TICKS(1000));
@@ -409,7 +396,7 @@ void PulseMotors(uint8_t qty){
 
 void MovementTask(void *pvParameters){
   for(;;){
-    if (state != RobotState::kStop)
+    if (state_machine.GetRobotState() != RobotState::kStop)
       RunStrategy();
     else{
       KillMotors();
@@ -428,17 +415,22 @@ void SensingTask(void *pvParameters){
 }
 
 void ControlMotors(){
-  switch (cur_direction){
+  switch (state_machine.GetDirection()){
     case Direction::kFront:
-      itamotorino.setSpeeds(-255, -255);
+      SetMotorSpeeds(-255, -255);
       break;
     case Direction::kLeft:
-      itamotorino.setSpeeds(191, -191);
+      SetMotorSpeeds(191, -191);
       break;
     case Direction::kRight:
-      itamotorino.setSpeeds(-191, 191);
+      SetMotorSpeeds(-191, 191);
       break;
     default:
       break;
   }
+}
+
+void SetMotorSpeeds(int16_t left_speed, int16_t right_speed){
+  state_machine.SetMotorSpeeds(left_speed, right_speed);
+  itamotorino.setSpeeds(left_speed, right_speed);
 }
