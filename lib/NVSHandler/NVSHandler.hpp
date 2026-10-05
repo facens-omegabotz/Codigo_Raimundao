@@ -8,17 +8,15 @@
 class NVSHandler{
   private:
     nvs_handle_t mem_handle;
-    bool nvs_ok;
-    const char* name;
-    esp_err_t err;
+    const char* mem_name;
+    esp_err_t nvs_err;
 
   public:
     NVSHandler(const char* name);
-    bool StartStorage();
-    bool get_nvs_ok();
+    esp_err_t StartStorage(nvs_open_mode_t open_mode);
     void CloseStorage();
-    bool WriteUnsignedIntToNVS(const char *key, uint32_t value);
-    uint32_t ReadUnsignedIntFromNVS(const char *key);
+    esp_err_t WriteUInt16(const char* k, const uint16_t* v);
+    esp_err_t ReadUInt16(const char* k, uint16_t* const v);
 };
 
 #endif
