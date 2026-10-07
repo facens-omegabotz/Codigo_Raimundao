@@ -34,12 +34,6 @@ enum class QTRCalibration : unsigned char {
   kUseQTRCalibration
 };
 
-enum class Direction : unsigned char {
-  kForward,
-  kBackward,
-  kNone
-};
-
 struct States {
   FightState fight_state {FightState::kReady};
   Strategy strategy {Strategy::kSearchLeft};
