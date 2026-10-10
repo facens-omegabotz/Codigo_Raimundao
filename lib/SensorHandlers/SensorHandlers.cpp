@@ -5,7 +5,7 @@ SensorHandler::SensorHandler(){
 }
 
 EnemySensorHandler::EnemySensorHandler(){
-  const std::map<uint8_t, uint8_t> sensor_bit = {
+  sensor_bit = {
     {LEFT_SENSOR, LEFT_SENSOR_BIT}, 
     {FRONT_LEFT_SENSOR, FRONT_LEFT_SENSOR_BIT},
     {CENTER_SENSOR, CENTER_SENSOR_BIT},
@@ -18,19 +18,24 @@ EnemySensorHandler::EnemySensorHandler(){
 
 void EnemySensorHandler::Detect(){
   for (const auto &[s, bit]: sensor_bit){
-    if (digitalRead(s)) xEventGroupSetBits(event_handle, bit);
-    else xEventGroupClearBits(event_handle, bit);
+    if (digitalRead(s)){
+      xEventGroupSetBits(event_handle, bit);
+      Serial.printf("GPIO %j=%d, bit %j=1\n", s, digitalRead(s), bit);
+    }
+    else {
+      xEventGroupClearBits(event_handle, bit);
+      Serial.printf("GPIO %j=%d, bit %j=0\n", s, digitalRead(s), bit);
+    }
   }
+  Serial.println();
 }
 
 LineSensorHandler::LineSensorHandler(){
-  const uint16_t qtr_bits[QTR_COUNT] = {LEFT_QTR_BIT, RIGHT_QTR_BIT};
-  const char* kMinOnKeys[QTR_COUNT] = {"min_on_1", "min_on_2"};
-  const char* kMaxOnKeys[QTR_COUNT] = {"max_on_1", "max_on_2"};
   qtr.setTypeAnalog();
 }
 
 esp_err_t LineSensorHandler::Calibrate(const QTRCalibration calib_mode, NVSHandler *const nvs){
+  Serial.println((int)calib_mode);
   if (calib_mode == QTRCalibration::kUseNVSValues){
     for (uint8_t i = 0; i < QTR_COUNT; ++i){
       nvs->ReadUInt16(kMinOnKeys[i], &qtr.calibrationOn.minimum[i]);
@@ -44,6 +49,7 @@ esp_err_t LineSensorHandler::Calibrate(const QTRCalibration calib_mode, NVSHandl
       nvs->WriteUInt16(kMaxOnKeys[i], &qtr.calibrationOn.maximum[i]);
     }
   }
+  return ESP_OK;
 }
 
 void LineSensorHandler::Detect(){

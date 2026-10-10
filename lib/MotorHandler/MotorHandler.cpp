@@ -25,14 +25,14 @@ void MotorHandler::SetDutyCycle(Motor* motor, Direction dir, float duty_cycle){
   if (motor->dir == dir){
     if (dir == Direction::kForward){
       if (motor->duty_cycle_a > duty_cycle){
-        for (float i = motor->duty_cycle_a; i >= duty_cycle; i -= 2.0){
+        for (float i = motor->duty_cycle_a; i >= duty_cycle; i -= 5.0){
           mcpwm_set_duty(MCPWM_UNIT_0, motor->timer, MCPWM_OPR_A, i);
           motor->duty_cycle_a = i;
           vTaskDelay(pdMS_TO_TICKS(5));
         }
       }
       else if (motor->duty_cycle_a < duty_cycle){
-        for (float i = motor->duty_cycle_a; i <= duty_cycle; i += 2.0){
+        for (float i = motor->duty_cycle_a; i <= duty_cycle; i += 5.0){
           mcpwm_set_duty(MCPWM_UNIT_0, motor->timer, MCPWM_OPR_A, i);
           motor->duty_cycle_a = i;
           vTaskDelay(pdMS_TO_TICKS(5));
@@ -41,14 +41,14 @@ void MotorHandler::SetDutyCycle(Motor* motor, Direction dir, float duty_cycle){
     }
     else if (dir == Direction::kBackward){
       if (motor->duty_cycle_b > duty_cycle){
-        for (float i = motor->duty_cycle_b; i >= duty_cycle; i -= 2.0){
+        for (float i = motor->duty_cycle_b; i >= duty_cycle; i -= 5.0){
           mcpwm_set_duty(MCPWM_UNIT_0, motor->timer, MCPWM_OPR_B, i);
           motor->duty_cycle_b = i;
           vTaskDelay(pdMS_TO_TICKS(5));
         }
       }
       else if (motor->duty_cycle_b < duty_cycle){
-        for (float i = motor->duty_cycle_b; i <= duty_cycle; i += 2.0){
+        for (float i = motor->duty_cycle_b; i <= duty_cycle; i += 5.0){
           mcpwm_set_duty(MCPWM_UNIT_0, motor->timer, MCPWM_OPR_B, i);
           motor->duty_cycle_b = i;
           vTaskDelay(pdMS_TO_TICKS(5));
@@ -58,24 +58,24 @@ void MotorHandler::SetDutyCycle(Motor* motor, Direction dir, float duty_cycle){
   }
   else{
     if (dir == Direction::kBackward){
-      for (float i = motor->duty_cycle_a; i >= 0; i -= 2.0){
+      for (float i = motor->duty_cycle_a; i >= 0; i -= 5.0){
         mcpwm_set_duty(MCPWM_UNIT_0, motor->timer, MCPWM_OPR_A, i);
         motor->duty_cycle_a = i;
         vTaskDelay(pdMS_TO_TICKS(5));
       }
-      for (float i = motor->duty_cycle_b; i <= duty_cycle; i += 2.0){
+      for (float i = motor->duty_cycle_b; i <= duty_cycle; i += 5.0){
         mcpwm_set_duty(MCPWM_UNIT_0, motor->timer, MCPWM_OPR_B, i);
         motor->duty_cycle_b = i;
         vTaskDelay(pdMS_TO_TICKS(5));
       }
     }
     else{
-      for (float i = motor->duty_cycle_b; i >= 0; i -= 2.0){
+      for (float i = motor->duty_cycle_b; i >= 0; i -= 5.0){
         mcpwm_set_duty(MCPWM_UNIT_0, motor->timer, MCPWM_OPR_B, i);
         motor->duty_cycle_b = i;
         vTaskDelay(pdMS_TO_TICKS(5));
       }
-      for (float i = motor->duty_cycle_a; i <= duty_cycle; i += 2.0){
+      for (float i = motor->duty_cycle_a; i <= duty_cycle; i += 5.0){
         mcpwm_set_duty(MCPWM_UNIT_0, motor->timer, MCPWM_OPR_A, i);
         motor->duty_cycle_a = i;
         vTaskDelay(pdMS_TO_TICKS(5));

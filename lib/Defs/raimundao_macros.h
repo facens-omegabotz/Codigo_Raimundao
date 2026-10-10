@@ -13,7 +13,6 @@
 #define RIGHT_QTR_BIT           (1<<1)
 
 #define QTR_COUNT               2u
-#define NUM_SAMPLES             4u
 
 #define PWM_FREQ                1000u
 #define CMPR_A                  0u

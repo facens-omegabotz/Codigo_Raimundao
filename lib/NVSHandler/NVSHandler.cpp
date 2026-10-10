@@ -19,9 +19,11 @@ inline void NVSHandler::CloseStorage(){ nvs_close(mem_handle); }
 
 esp_err_t NVSHandler::WriteUInt16(const char* k, const uint16_t* v){
   nvs_err = nvs_set_u16(mem_handle, k, *v);
+  Serial.println(esp_err_to_name(nvs_err));
   ESP_ERROR_CHECK(nvs_err);
   nvs_err = nvs_commit(mem_handle);
+  Serial.println(esp_err_to_name(nvs_err));
   return nvs_err;
 }
 
-inline esp_err_t NVSHandler::ReadUInt16(const char* k, uint16_t* const v){ return nvs_get_u16(mem_handle, k, v); }
+esp_err_t NVSHandler::ReadUInt16(const char* k, uint16_t* const v){ return nvs_get_u16(mem_handle, k, v); }

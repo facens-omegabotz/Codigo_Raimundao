@@ -29,11 +29,6 @@ enum class QTRState : unsigned char {
   kNone
 };
 
-enum class QTRCalibration : unsigned char {
-  kUseNVSValues,
-  kUseQTRCalibration
-};
-
 struct States {
   FightState fight_state {FightState::kReady};
   Strategy strategy {Strategy::kSearchLeft};

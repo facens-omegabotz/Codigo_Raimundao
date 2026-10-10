@@ -35,6 +35,7 @@ class MotorHandler {
     void SetDutyCycle(Motor* motor, Direction d, float duty_cycle);
 
   public:
+    MotorHandler() = default;
     MotorHandler(mcpwm_config_t* cfg, Motor* motor_a, Motor* motor_b); // config explícita, talvez mudar
     esp_err_t Init();
     void SetDutyCycles(float duty_left, Direction dir_left, float duty_right, Direction dir_right);

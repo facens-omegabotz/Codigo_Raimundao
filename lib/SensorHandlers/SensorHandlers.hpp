@@ -4,11 +4,16 @@
 #include <map>
 #include <freertos/FreeRTOS.h>
 #include <freertos/event_groups.h>
-#include "QTRSensors.h"
+#include <QTRSensors.h>
 #include "raimundao_macros.h"
 #include "raimundao_pins.h"
 #include "raimundao_types.hpp"
 #include "NVSHandler.hpp"
+
+enum class QTRCalibration : unsigned char {
+  kUseNVSValues,
+  kUseQTRCalibration
+};
 
 class SensorHandler {
   public:
@@ -20,7 +25,7 @@ class SensorHandler {
 
 class EnemySensorHandler : public SensorHandler {
   private:
-    static const std::map<uint8_t, uint8_t> sensor_bit;
+    std::map<uint8_t, uint8_t> sensor_bit;
   public:
     EnemySensorHandler();
     void Detect() override;  
@@ -28,9 +33,9 @@ class EnemySensorHandler : public SensorHandler {
 
 class LineSensorHandler : public SensorHandler {
   private:
-    static const uint16_t qtr_bits[QTR_COUNT];
-    static const char* kMinOnKeys[QTR_COUNT];
-    static const char* kMaxOnKeys[QTR_COUNT];
+    uint16_t qtr_bits[QTR_COUNT] = {LEFT_QTR_BIT, RIGHT_QTR_BIT};
+    char* kMinOnKeys[QTR_COUNT] = {"min_on_1", "min_on_2"};
+    char* kMaxOnKeys[QTR_COUNT] = {"max_on_1", "max_on_2"};
     QTRSensors qtr;
     uint16_t qtr_values[QTR_COUNT];
 

@@ -6,6 +6,12 @@ StateMachine::StateMachine(EventGroupHandle_t enemy_handle, EventGroupHandle_t q
 }
 
 bool StateMachine::ParseRobotState(const uint16_t command){
+  Serial.println(command);
+  /* if (states.fight_state == FightState::kStop) {
+    states.fight_state = FightState::kStop;
+
+    return true;
+  } else */
   switch (command){
     case static_cast<uint16_t>(FightState::kReady):
       states.fight_state = FightState::kReady;
@@ -46,10 +52,11 @@ void StateMachine::UpdateSensorState(){
   enemy_bits = xEventGroupWaitBits(
     enemy_handle, 
     LEFT_SENSOR_BIT | FRONT_LEFT_SENSOR_BIT | CENTER_SENSOR_BIT | FRONT_RIGHT_SENSOR_BIT | RIGHT_SENSOR_BIT,
-    pdFALSE,
     pdTRUE,
+    pdFALSE,
     pdMS_TO_TICKS(5));
   
+  Serial.println(enemy_bits, BIN);
   switch (enemy_bits){
     case 0b00100:
     case 0b01110:
